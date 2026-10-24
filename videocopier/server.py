@@ -14,17 +14,9 @@ from starlette.middleware.sessions import SessionMiddleware
 from videocopier.auth import ADMIN_EMAIL, AuthMiddleware, credentials_ok, session_secret
 from videocopier.board import BoardError, board_status, download_source, get_slot, list_approved
 from videocopier.knowledge import load_brief, save_brief
-from videocopier.drive import (
-    DriveError,
-    drive_connected,
-    find_local_google_drive,
-    finish_oauth,
-    oauth_configured,
-    start_oauth_url,
-)
 from videocopier.models import JobSpec, JobState
 from videocopier.pick import PickCancelled, folder_info, pick_file, pick_files, pick_folder
-from videocopier.pipeline import job_dir, load_state, run_job, save_state
+from videocopier.pipeline import job_dir, load_state, save_state
 
 STATIC = Path(__file__).resolve().parent / "static"
 os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
@@ -80,15 +72,29 @@ def me(request: Request):
     return {"email": request.session.get("user")}
 
 
+def _on_vercel() -> bool:
+    return bool(os.environ.get("VERCEL"))
+
+
 @app.get("/api/health")
 def health():
-    mounts = [str(p) for p in find_local_google_drive()]
-    return {
-        "ok": True,
-        "drive_connected": drive_connected(),
-        "drive_oauth_ready": oauth_configured(),
-        "google_drive_desktop": mounts,
-    }
+    try:
+        from videocopier.drive import drive_connected, find_local_google_drive, oauth_configured
+
+        mounts = [str(p) for p in find_local_google_drive()]
+        return {
+            "ok": True,
+            "drive_connected": drive_connected(),
+            "drive_oauth_ready": oauth_configured(),
+            "google_drive_desktop": mounts,
+        }
+    except ImportError:
+        return {
+            "ok": True,
+            "drive_connected": False,
+            "drive_oauth_ready": False,
+            "google_drive_desktop": [],
+        }
 
 
 @app.post("/api/pick/folder")
@@ -279,6 +285,17 @@ def api_board_cards(slot_id: str):
     return payload
 
 
+def _start_job(job_id: str) -> None:
+    if _on_vercel():
+        raise HTTPException(
+            501,
+            "Remakes cannot run on Vercel. On a Mac: uv sync && uv run python -m videocopier serve",
+        )
+    from videocopier.pipeline import run_job
+
+    threading.Thread(target=run_job, args=(job_id,), daemon=True).start()
+
+
 @app.post("/api/jobs")
 async def create_job(spec: JobSpec):
     if not spec.reference.strip():
@@ -288,7 +305,7 @@ async def create_job(spec: JobSpec):
     job_id = uuid.uuid4().hex[:12]
     state = JobState(id=job_id, spec=spec, status="queued", step="queued")
     save_state(state)
-    threading.Thread(target=run_job, args=(job_id,), daemon=True).start()
+    _start_job(job_id)
     return state
 
 
@@ -324,7 +341,7 @@ async def create_job_upload(
     spec = JobSpec(reference=reference, footage=footage, footage_paths=extra, music=music or None, caption_mode=caption_mode)  # type: ignore[arg-type]
     state = JobState(id=job_id, spec=spec, status="queued", step="queued")
     save_state(state)
-    threading.Thread(target=run_job, args=(job_id,), daemon=True).start()
+    _start_job(job_id)
     return state
 
 
@@ -359,6 +376,8 @@ def drive_status():
 
 @app.get("/api/drive/connect")
 def drive_connect(base: str = Query(default="http://127.0.0.1:8000")):
+    from videocopier.drive import DriveError, start_oauth_url
+
     try:
         url = start_oauth_url(_redirect_uri(base))
     except DriveError as exc:
@@ -368,6 +387,8 @@ def drive_connect(base: str = Query(default="http://127.0.0.1:8000")):
 
 @app.get("/api/drive/callback")
 def drive_callback(code: str | None = None, error: str | None = None):
+    from videocopier.drive import finish_oauth
+
     if error:
         return RedirectResponse("/?drive=error")
     if not code:

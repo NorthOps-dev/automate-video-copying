@@ -2797,50 +2797,59 @@ wheels = [
 name = "videocopier"
 version = "0.1.0"
 source = { editable = "." }
+default-groups = ["remake"]
 dependencies = [
     { name = "fastapi" },
+    { name = "itsdangerous" },
+    { name = "pydantic" },
+    { name = "python-multipart" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.dev-dependencies]
+remake = [
     { name = "faster-whisper" },
     { name = "gdown" },
     { name = "google-api-python-client" },
     { name = "google-auth-httplib2" },
     { name = "google-auth-oauthlib" },
-    { name = "itsdangerous" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "open-clip-torch" },
     { name = "opencv-python-headless" },
     { name = "pillow" },
-    { name = "pydantic" },
-    { name = "python-multipart" },
     { name = "rapidocr-onnxruntime" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "scipy", version = "1.18.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "soundfile" },
     { name = "torch" },
-    { name = "uvicorn", extra = ["standard"] },
     { name = "yt-dlp" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "itsdangerous", specifier = ">=2.2.0" },
+    { name = "pydantic", specifier = ">=2.9.0" },
+    { name = "python-multipart", specifier = ">=0.0.12" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
+]
+
+[package.metadata.requires-dev]
+remake = [
     { name = "faster-whisper", specifier = ">=1.1.0" },
     { name = "gdown", specifier = ">=5.2.0" },
     { name = "google-api-python-client", specifier = ">=2.150.0" },
     { name = "google-auth-httplib2", specifier = ">=0.2.0" },
     { name = "google-auth-oauthlib", specifier = ">=1.2.1" },
-    { name = "itsdangerous", specifier = ">=2.2.0" },
     { name = "numpy", specifier = ">=2.0.0" },
     { name = "open-clip-torch", specifier = ">=2.29.0" },
     { name = "opencv-python-headless", specifier = ">=4.10.0" },
     { name = "pillow", specifier = ">=10.4.0" },
-    { name = "pydantic", specifier = ">=2.9.0" },
-    { name = "python-multipart", specifier = ">=0.0.12" },
     { name = "rapidocr-onnxruntime", specifier = ">=1.4.4" },
     { name = "scipy", specifier = ">=1.13.0" },
     { name = "soundfile", specifier = ">=0.12.1" },
     { name = "torch", specifier = ">=2.4.0" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
     { name = "yt-dlp", specifier = ">=2025.1.0" },
 ]
 

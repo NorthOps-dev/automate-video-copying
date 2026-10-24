@@ -1,0 +1,10 @@
+.venv
+.work
+.models
+output
+jobs
+tests
+*.mp4
+*.mov
+*.mkv
+*.wav

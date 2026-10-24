@@ -1,0 +1,3 @@
+{
+  "installCommand": "pip install fastapi 'uvicorn[standard]' itsdangerous python-multipart pydantic"
+}

@@ -2,18 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from videocopier.adapt import captions_from_design, tiktok_cards
-from videocopier.rewrite import coalesce_cards, remake_for_client
-from videocopier.analyze import analyze_reference
-from videocopier.board import BoardError, get_slot
-from videocopier.compile import compile_cut
-from videocopier.fcpxml import write_fcpxml
-from videocopier.index import index_footage
-from videocopier.knowledge import load_brief
-from videocopier.match import match_footage
-from videocopier.media import list_videos
 from videocopier.models import JobSpec, JobState
-from videocopier.sources import resolve_footage, resolve_reference
 
 ROOT = Path(__file__).resolve().parent.parent
 WORK = ROOT / ".work" / "jobs"
@@ -41,6 +30,18 @@ def _log(state: JobState, message: str) -> None:
 
 
 def run_job(job_id: str) -> JobState:
+    from videocopier.adapt import captions_from_design, tiktok_cards
+    from videocopier.analyze import analyze_reference
+    from videocopier.board import BoardError, get_slot
+    from videocopier.compile import compile_cut
+    from videocopier.fcpxml import write_fcpxml
+    from videocopier.index import index_footage
+    from videocopier.knowledge import load_brief
+    from videocopier.match import match_footage
+    from videocopier.media import list_videos
+    from videocopier.rewrite import coalesce_cards, remake_for_client
+    from videocopier.sources import resolve_footage, resolve_reference
+
     state = load_state(job_id)
     work = job_dir(job_id)
     state.status = "running"
