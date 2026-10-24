@@ -13,18 +13,17 @@ HEIGHT = 1920
 FPS = 30
 
 
-def _layout_filter(path: Path, face_x: float, pad: float) -> str:
+def _layout_filter(path: Path, face_x: float) -> str:
     info = video_info(path)
     ow = max(info["width"], 1)
     oh = max(info["height"], 1)
-    tpad = f",tpad=stop_mode=clone:stop_duration={pad:.3f}" if pad > 0.05 else ""
     if ow / oh > 0.72:
         # Landscape iPhone clip → 9:16 like TikTok: full clip, blurred fill behind.
         return (
             f"split[bg][fg];[bg]scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,"
             f"crop={WIDTH}:{HEIGHT},boxblur=24:1[bg];"
             f"[fg]scale={WIDTH}:-2[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,"
-            f"fps={FPS},setsar=1,format=yuv420p{tpad}"
+            f"fps={FPS},setsar=1,format=yuv420p"
         )
     scale = max(WIDTH / ow, HEIGHT / oh)
     sw = max(int(round(ow * scale)), WIDTH)
@@ -33,29 +32,30 @@ def _layout_filter(path: Path, face_x: float, pad: float) -> str:
     cx = max(0, min(cx, sw - WIDTH))
     cy = int(round(sh * 0.42 - HEIGHT / 2))
     cy = max(0, min(cy, sh - HEIGHT))
-    return f"scale={sw}:{sh},crop={WIDTH}:{HEIGHT}:{cx}:{cy},fps={FPS},setsar=1,format=yuv420p{tpad}"
+    return f"scale={sw}:{sh},crop={WIDTH}:{HEIGHT}:{cx}:{cy},fps={FPS},setsar=1,format=yuv420p"
 
 
 def _render_filled(slot: Slot, dest: Path) -> None:
     assert slot.source_path and slot.source_in is not None and slot.source_out is not None
     duration = max(slot.duration, 0.1)
     src_dur = max(slot.source_out - slot.source_in, 0.1)
-    pad = duration - src_dur
-    vf = _layout_filter(Path(slot.source_path), slot.face_x, pad)
+    short = duration - src_dur
+    vf = _layout_filter(Path(slot.source_path), slot.face_x)
+    # Play the real clip. If it's short, loop the take — never freeze a still.
+    loop = ["-stream_loop", "-1"] if short > 0.05 else []
     audio_in = [
+        *loop,
         "-ss",
         f"{slot.source_in:.3f}",
-        "-t",
-        f"{src_dur:.3f}",
         "-i",
         slot.source_path,
+        "-t",
+        f"{duration:.3f}",
     ]
     cmd = [ffmpeg_bin(), "-hide_banner", "-y", *audio_in]
     uses_complex = "split[" in vf
     if has_audio(Path(slot.source_path)):
-        af = "aresample=48000,aformat=channel_layouts=stereo"
-        if pad > 0.05:
-            af += f",apad=pad_dur={pad:.3f}"
+        af = "aresample=48000,aformat=channel_layouts=stereo,apad=pad_dur=2"
         if uses_complex:
             cmd += ["-filter_complex", vf, "-af", af]
         else:
@@ -94,37 +94,51 @@ def _render_filled(slot: Slot, dest: Path) -> None:
 
 
 def _render_slate(slot: Slot, dest: Path) -> None:
-    label = slot.role.replace("_", " ").upper()
-    txt = dest.with_suffix(".txt")
-    txt.write_text(f"FILM THIS\n{label}\n{slot.duration:.1f}s")
-    draw = (
-        f"drawtext=textfile='{txt.as_posix()}':fontcolor=white:fontsize=54:"
-        f"line_spacing=18:x=(w-text_w)/2:y=(h-text_h)/2:"
-        f"borderw=3:bordercolor=black"
-    )
+    from PIL import Image, ImageDraw, ImageFont
+
+    font_choice = ensure_caption_font()
+    img = Image.new("RGB", (WIDTH, HEIGHT), (10, 10, 12))
+    draw = ImageDraw.Draw(img)
+    title = ImageFont.truetype(str(font_choice.path), size=72, index=font_choice.index)
+    body = ImageFont.truetype(str(font_choice.path), size=40, index=font_choice.index)
+    lines = [
+        ("FILM THIS", title),
+        (slot.role.replace("_", " ").upper(), body),
+        (f"{max(slot.duration, 0.1):.1f}s", body),
+    ]
+    y = HEIGHT * 0.4
+    for text, face in lines:
+        bbox = draw.textbbox((0, 0), text, font=face)
+        tw = bbox[2] - bbox[0]
+        draw.text(((WIDTH - tw) / 2, y), text, font=face, fill=(244, 244, 245))
+        y += face.size + 18
+    png = dest.with_suffix(".png")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    img.save(png)
+    duration = max(slot.duration, 0.1)
     run(
         [
             ffmpeg_bin(),
             "-hide_banner",
             "-y",
-            "-f",
-            "lavfi",
+            "-loop",
+            "1",
             "-i",
-            f"color=c=0x0a0a0c:s={WIDTH}x{HEIGHT}:d={max(slot.duration, 0.1):.3f}:r={FPS}",
+            str(png),
             "-f",
             "lavfi",
             "-i",
             "anullsrc=r=48000:cl=stereo",
-            "-vf",
-            f"{draw},format=yuv420p",
             "-t",
-            f"{max(slot.duration, 0.1):.3f}",
+            f"{duration:.3f}",
             "-c:v",
             "libx264",
             "-preset",
             "veryfast",
             "-crf",
             "18",
+            "-pix_fmt",
+            "yuv420p",
             "-c:a",
             "aac",
             "-shortest",
@@ -142,7 +156,7 @@ def _pick_captions(
 ) -> list[CaptionLine]:
     overlay = [c for c in blueprint.captions if c.kind == "overlay"]
     speech = [c for c in blueprint.captions if c.kind != "overlay"]
-    if mode != "footage" and overlay:
+    if mode in {"client", "auto", "reference"} and overlay:
         return overlay
     if mode == "reference":
         return overlay or speech
@@ -157,7 +171,7 @@ def compile_cut(
     cutlist: CutList,
     work: Path,
     dest: Path,
-    caption_mode: str = "auto",
+    caption_mode: str = "client",
     music: Path | None = None,
     progress=lambda m: None,
 ) -> Path:
@@ -167,6 +181,9 @@ def compile_cut(
     for slot in cutlist.slots:
         out = slots_dir / f"{slot.shot_index:03d}.mp4"
         progress(f"Rendering slot {slot.shot_index + 1}/{len(cutlist.slots)} ({slot.status})")
+        if slot.status == "filled" and out.exists() and out.stat().st_size > 1000:
+            slot_files.append(out)
+            continue
         if slot.status == "filled":
             _render_filled(slot, out)
         else:
@@ -193,7 +210,7 @@ def compile_cut(
         ]
     )
 
-    progress("Burning TikTok-style captions…")
+    progress("Burning client captions on the TikTok cards…")
     captions = _pick_captions(blueprint, cutlist, work, caption_mode, concat_path)
     font = ensure_caption_font()
     build_ass(captions, work / "captions.ass", font)

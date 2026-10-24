@@ -19,6 +19,7 @@ def index_footage(folder: Path, work: Path, progress=lambda m: None, max_scenes:
     files = list_videos(folder)
     progress(f"Found {len(files)} video files")
     scenes: list[Scene] = []
+    durations: dict[str, float] = {}
     for file_i, path in enumerate(files):
         if len(scenes) >= max_scenes:
             break
@@ -26,6 +27,7 @@ def index_footage(folder: Path, work: Path, progress=lambda m: None, max_scenes:
             info = video_info(path)
         except Exception:
             continue
+        durations[str(path)] = float(info["duration"])
         scene_work = work / "index_meta" / path.stem
         scene_work.mkdir(parents=True, exist_ok=True)
         try:
@@ -40,28 +42,43 @@ def index_footage(folder: Path, work: Path, progress=lambda m: None, max_scenes:
             dur = end - start
             if dur < 0.4:
                 continue
-            mid = start + min(dur * 0.3, 1.5)
-            try:
-                frame = read_frame_bgr(path, mid)
-                quality, luma, sat, has_face, face_x = frame_quality(frame)
-                embedding = embed_frame(frame)
-            except Exception:
-                quality, luma, sat, has_face, face_x = 0.3, 0.5, 0.3, False, 0.5
-                embedding = []
-            energy, motion = motion_stats(path, start, min(dur, 4.0))
-            scenes.append(
-                Scene(
-                    path=str(path),
-                    start=round(start, 3),
-                    end=round(end, 3),
-                    duration=round(dur, 3),
-                    quality=round(quality, 4),
-                    motion=motion,
-                    energy=round(energy, 4),
-                    has_face=has_face,
-                    face_x=round(face_x, 4),
-                    mean_luma=round(luma, 4),
-                    embedding=embedding,
+            windows = [(start, end)]
+            if dur > 2.8:
+                windows = []
+                t = start
+                while t + 0.75 < end and len(windows) < 24:
+                    w_end = min(t + 2.0, end)
+                    if w_end - t >= 0.7:
+                        windows.append((t, w_end))
+                    t += 1.15
+                if not windows:
+                    windows = [(start, end)]
+            for w_start, w_end in windows:
+                if len(scenes) >= max_scenes:
+                    break
+                w_dur = w_end - w_start
+                mid = w_start + min(w_dur * 0.35, 0.9)
+                try:
+                    frame = read_frame_bgr(path, mid)
+                    quality, luma, sat, has_face, face_x = frame_quality(frame)
+                    embedding = embed_frame(frame)
+                except Exception:
+                    quality, luma, sat, has_face, face_x = 0.3, 0.5, 0.3, False, 0.5
+                    embedding = []
+                energy, motion = motion_stats(path, w_start, min(w_dur, 4.0))
+                scenes.append(
+                    Scene(
+                        path=str(path),
+                        start=round(w_start, 3),
+                        end=round(w_end, 3),
+                        duration=round(w_dur, 3),
+                        quality=round(quality, 4),
+                        motion=motion,
+                        energy=round(energy, 4),
+                        has_face=has_face,
+                        face_x=round(face_x, 4),
+                        mean_luma=round(luma, 4),
+                        embedding=embedding,
+                    )
                 )
-            )
-    return FootageIndex(scenes=scenes, files=[str(p) for p in files])
+    return FootageIndex(scenes=scenes, files=[str(p) for p in files], durations=durations)

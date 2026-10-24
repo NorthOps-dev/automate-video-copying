@@ -1,10 +1,33 @@
 # NorthOps Prophet
 
-Internal NorthOps software. Drop in a viral reference and a folder of raw footage — Prophet copies the edit (pacing, shot order, Classic TikTok captions) using **only your clips**.
+Internal NorthOps software. Remake an **approved TikTok format** for a **named client**.
 
-It copies the **edit**, not the pixels, and not the original song. Lay in a track you have rights to; Prophet still reads the reference beat/energy.
+Prophet does not paste the viral’s words onto leftover clips. It:
+
+1. Loads the client from the Board and a fillable brief (`clients/*.json`)
+2. Uses that slot’s remake script (`scriptLines.brand` / `clientScript`)
+3. Copies the approved cut’s pacing and shot order
+4. Spreads the client’s **good takes** across the format
+5. Burns Classic TikTok captions **inside** the 9:16 frame
+
+It copies the **edit**, not the pixels, and not the original song.
 
 Keep this repository **private**. Sign-in is required for the web app.
+
+## How you use it
+
+1. **Client** — pick who this is for. Fill or correct the brief (voice, CTA, never-say). MeloMelo is already seeded.
+2. **Approved format** — pick the Board design. Prophet shows the remake script, not the viral OCR.
+3. **Footage** — add the client’s talking-heads and B-roll. Command-click several files.
+4. **Remake** — export 1080×1920 with client captions.
+
+## Board
+
+Prophet reads approved slots from `https://board-production-bd79.up.railway.app` with the same admin login. Override with `NORTHOPS_BOARD_URL`.
+
+## Client knowledge
+
+Briefs live in `clients/{clientId}.json`. Edit them in the app or in the file. Fields: one-liner, location, what they do, voice, CTA, avoid.
 
 ## Sign in
 
@@ -27,49 +50,30 @@ uv sync
 uv run python -m videocopier
 ```
 
-CLI (no sign-in):
+CLI:
 
 ```bash
 uv run python -m videocopier run \
-  --reference /path/to/viral.mp4 \
+  --reference board:SLOT_ID \
   --footage /path/to/raw-folder \
+  --captions client \
   --out ./output.mp4
 ```
 
-`--reference` can also be a TikTok / YouTube / Instagram URL or a Google Drive file link.
-
-## Push to GitHub
-
-This repo is meant to stay private.
-
-```bash
-gh auth login
-gh repo create NorthOps-Prophet --private --source=. --remote=origin --push
-```
-
-## Can it reach Google Drive?
-
-The app can, in three ways:
-
-1. **Local path** — Google Drive for Desktop folder path (usually under `~/Library/CloudStorage/GoogleDrive-…/My Drive/…`).
-2. **Public link** — an “anyone with the link” Drive file or folder URL. Downloaded with `gdown`, no Google login.
-3. **Private Drive** — put a Google Cloud OAuth `client_secret.json` in `~/.videocopier/` (Drive **read-only** scope) and click **Connect Google Drive**.
-
 ## Captions
 
-Every export burns **Classic TikTok captions**: Proxima-like Bold (Avenir Next Bold on macOS, Montserrat Bold otherwise), white fill, thick black outline.
+Classic TikTok look: Avenir Next Bold on macOS (Montserrat Bold otherwise), white fill, thick black outline, wrapped to stay inside 1080×1920.
 
-- **Auto** — caption what your footage actually says; if the clips are silent B-roll, use the reference script instead.
-- **Reference** — always the viral on-screen text, timed like the original.
-- **Footage** — always your speech.
+- **Client** (default) — Board remake script + brief
+- **Reference** — viral on-screen text (almost never what you want)
+- **Footage** — only what is said in these clips
 
 ## What it will not do
 
-- Mux the viral video’s audio onto your export by default (that’s their recording).
-- Invent shots you did not film. Missing matches become black **FILM THIS** slates plus a shot list.
+- Mux the viral video’s audio onto your export by default
+- Invent shots you did not film. Missing matches become black **FILM THIS** slates
 
 ## Output
 
 - `output.mp4` — 1080×1920, captions on
 - `output.fcpxml` — timeline for Final Cut / Resolve
-- `cutlist.json` — every slot, score, and source in/out

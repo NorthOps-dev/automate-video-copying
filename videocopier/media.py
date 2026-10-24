@@ -143,8 +143,12 @@ def detect_cuts(path: Path, work: Path, threshold: float = 0.22) -> list[float]:
                 pts = None
     duration = video_info(path)["duration"]
     cuts += detect_cuts_by_diff(path, duration)
-    cuts = sorted({round(c, 3) for c in cuts if c >= 0})
-    return cuts
+    cuts = sorted({round(c, 3) for c in cuts if 0 <= c < duration - 0.05})
+    merged = [cuts[0]] if cuts else [0.0]
+    for t in cuts[1:]:
+        if t - merged[-1] >= 0.4:
+            merged.append(t)
+    return merged
 
 
 def shot_bounds(cuts: list[float], duration: float, min_len: float = 0.35) -> list[tuple[float, float]]:

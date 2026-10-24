@@ -27,6 +27,21 @@ def _norm(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", text.lower())
 
 
+def _similar(a: str, b: str) -> bool:
+    na, nb = _norm(a), _norm(b)
+    if na == nb:
+        return True
+    if not na or not nb:
+        return False
+    if na in nb or nb in na:
+        return True
+    wa = set(re.findall(r"[a-z0-9]+", a.lower()))
+    wb = set(re.findall(r"[a-z0-9]+", b.lower()))
+    if not wa or not wb:
+        return False
+    return len(wa & wb) / len(wa | wb) >= 0.55
+
+
 def ocr_captions(path, duration: float, progress=lambda m: None) -> list[CaptionLine]:
     engine = _engine()
     if engine is None or duration < 0.4:
@@ -50,32 +65,36 @@ def ocr_captions(path, duration: float, progress=lambda m: None) -> list[Caption
             if not text or conf < 0.45 or len(text.strip()) < 2:
                 continue
             text = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", text.strip())
+            text = re.sub(r"\bI([a-z])", r"I \1", text)
+            text = re.sub(r"([a-zA-Z])(\d)", r"\1 \2", text)
+            text = re.sub(r"(\d)([a-zA-Z])", r"\1 \2", text)
+            text = re.sub(r"([,:;!?])([A-Za-z])", r"\1 \2", text)
             text = (
                 text.replace("don'tcomebacktowork", "don't come back to work")
                 .replace("dontcomebacktowork", "don't come back to work")
                 .replace("come backtowork", "come back to work")
+                .replace("andI", "and I")
+                .replace("Newin ", "New in ")
             )
             lines.append(text)
             pts = np.array(box, dtype=np.float32).reshape(-1, 2)
-            ys.append(float(pts[:, 1].mean() / max(h, 1)))
+            ys.append(float(pts[:, 1].min() / max(h, 1)))
         text = "\n".join(lines).strip()
-        y_ratio = float(np.median(ys)) if ys else 0.22
+        y_ratio = float(min(ys)) if ys else 0.14
         samples.append((t, text, y_ratio))
         t += step
 
     events: list[CaptionLine] = []
-    prev_norm = ""
     start = 0.0
     chunk = ""
-    y_ratio = 0.22
+    y_ratio = 0.14
     for t, text, y in samples:
-        n = _norm(text)
-        if n == prev_norm:
-            if text.count(" ") > chunk.count(" "):
+        if _similar(text, chunk):
+            if len(_norm(text)) > len(_norm(chunk)):
                 chunk = text
                 y_ratio = y
             continue
-        if prev_norm and len(chunk) >= 8:
+        if len(_norm(chunk)) >= 8:
             events.append(
                 CaptionLine(
                     text=chunk,
@@ -85,11 +104,10 @@ def ocr_captions(path, duration: float, progress=lambda m: None) -> list[Caption
                     y_ratio=round(y_ratio, 3),
                 )
             )
-        prev_norm = n
         chunk = text
         start = t
         y_ratio = y
-    if prev_norm and len(chunk) >= 8:
+    if len(_norm(chunk)) >= 8:
         events.append(
             CaptionLine(
                 text=chunk,
@@ -99,7 +117,18 @@ def ocr_captions(path, duration: float, progress=lambda m: None) -> list[Caption
                 y_ratio=round(y_ratio, 3),
             )
         )
-    # Keep overlay cards that stay up at least 0.8s
-    kept = [e for e in events if (e.end - e.start) >= 0.8]
-    progress(f"Found {len(kept)} on-screen caption cards")
-    return kept
+
+    held: list[CaptionLine] = []
+    events.sort(key=lambda e: e.start)
+    for i, card in enumerate(events):
+        nxt = events[i + 1].start if i + 1 < len(events) else duration
+        end = max(card.end, card.start + 0.85)
+        if i + 1 < len(events):
+            end = min(end, nxt - 0.05)
+        else:
+            end = max(end, duration)
+        if end <= card.start + 0.55:
+            continue
+        held.append(card.model_copy(update={"end": round(end, 3)}))
+    progress(f"Found {len(held)} on-screen caption cards")
+    return held

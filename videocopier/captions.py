@@ -10,6 +10,10 @@ from videocopier.models import CaptionLine, Word
 
 WIDTH = 1080
 HEIGHT = 1920
+SAFE_X = 70
+MAX_TEXT_W = WIDTH - SAFE_X * 2
+TOP_MIN = 90
+MAX_BLOCK_H = 560
 CYAN = (0, 242, 234, 255)
 WHITE = (255, 255, 255, 255)
 BLACK = (0, 0, 0, 255)
@@ -147,30 +151,80 @@ def _load_font(path: Path, size: int = 76, index: int = 0) -> ImageFont.FreeType
     return font
 
 
+def _wrap_to_width(text: str, font, max_w: float = MAX_TEXT_W) -> list[str]:
+    lines: list[str] = []
+    for para in text.replace("\r", "").split("\n"):
+        words = para.split()
+        if not words:
+            continue
+        cur = words[0]
+        for word in words[1:]:
+            trial = f"{cur} {word}"
+            if font.getlength(_classic_text(trial)) <= max_w:
+                cur = trial
+            else:
+                lines.append(cur)
+                cur = word
+        lines.append(cur)
+    return lines or [text.strip()]
+
+
+def _fit_block_font(font_choice: FontChoice, text: str, start: int = 74):
+    source = [ln.strip() for ln in text.replace("\r", "").split("\n") if ln.strip()]
+    # Shrink first so the TikTok's own line breaks stay intact.
+    if source:
+        for size in (start, 64, 56, 48, 42, 36):
+            font = _load_font(font_choice.path, size=size, index=font_choice.index)
+            if all(font.getlength(_classic_text(ln)) <= MAX_TEXT_W for ln in source):
+                lines = [_classic_text(ln) for ln in source]
+                line_h = font.size + 10
+                if line_h * len(lines) <= MAX_BLOCK_H:
+                    return font, lines[:8], line_h
+    for size in (start, 64, 56, 48, 42, 36):
+        font = _load_font(font_choice.path, size=size, index=font_choice.index)
+        lines = [_classic_text(ln) for ln in _wrap_to_width(text, font) if ln.strip()]
+        line_h = font.size + 12
+        widest = max((font.getlength(ln) for ln in lines), default=0)
+        if widest <= MAX_TEXT_W and line_h * len(lines) <= MAX_BLOCK_H and len(lines) <= 8:
+            return font, lines[:8], line_h
+    font = _load_font(font_choice.path, size=36, index=font_choice.index)
+    lines = [_classic_text(ln) for ln in _wrap_to_width(text, font) if ln.strip()]
+    return font, lines[:8], font.size + 12
+
+
 def _draw_phrase(draw: ImageDraw.ImageDraw, words: list[str], highlight: int | None, font, y: float | None = None) -> None:
     words = [_classic_text(w) for w in words]
-    space = font.getlength(" ")
-    widths = [font.getlength(w) for w in words]
-    total = sum(widths) + space * max(len(words) - 1, 0)
-    x = (WIDTH - total) / 2
-    y = HEIGHT - 520 if y is None else y
-    for i, word in enumerate(words):
-        fill = CYAN if highlight == i else WHITE
-        draw.text((x, y), word, font=font, fill=fill, stroke_width=6, stroke_fill=BLACK)
-        x += widths[i] + space
+    rows = _wrap_to_width(" ".join(words), font)
+    line_h = font.size + 10
+    y = HEIGHT - 520 - line_h * max(len(rows) - 1, 0) if y is None else y
+    y = max(TOP_MIN, min(y, HEIGHT - line_h * len(rows) - 120))
+    cursor = 0
+    for row_i, row in enumerate(rows):
+        tokens = row.split()
+        space = font.getlength(" ")
+        widths = [font.getlength(w) for w in tokens]
+        total = sum(widths) + space * max(len(tokens) - 1, 0)
+        x = max(SAFE_X, (WIDTH - min(total, MAX_TEXT_W)) / 2)
+        for word in tokens:
+            fill = CYAN if highlight == cursor else WHITE
+            draw.text((x, y + row_i * line_h), word, font=font, fill=fill, stroke_width=6, stroke_fill=BLACK)
+            x += font.getlength(word) + space
+            cursor += 1
 
 
-def _draw_block(draw: ImageDraw.ImageDraw, text: str, font, y_ratio: float) -> None:
-    lines = [_classic_text(ln.strip()) for ln in text.split("\n") if ln.strip()]
+def _draw_block(draw: ImageDraw.ImageDraw, text: str, font_choice: FontChoice, y_ratio: float) -> None:
+    font, lines, line_h = _fit_block_font(font_choice, text)
     if not lines:
         return
-    line_h = font.size + 14
-    y = max(110, min(HEIGHT * min(y_ratio, 0.15), HEIGHT - line_h * len(lines) - 180))
+    block_h = line_h * len(lines)
+    # Sit the block where the TikTok put it (OCR y_ratio), not pinned to the top.
+    y = HEIGHT * max(0.06, min(y_ratio, 0.72))
+    y = max(TOP_MIN, min(y, HEIGHT - block_h - 160))
     for i, line in enumerate(lines):
-        bbox = draw.textbbox((0, 0), line, font=font, stroke_width=7)
+        bbox = draw.textbbox((0, 0), line, font=font, stroke_width=5)
         tw = bbox[2] - bbox[0]
-        x = (WIDTH - tw) / 2
-        draw.text((x, y + i * line_h), line, font=font, fill=WHITE, stroke_width=7, stroke_fill=BLACK)
+        x = max(SAFE_X, (WIDTH - tw) / 2)
+        draw.text((x, y + i * line_h), line, font=font, fill=WHITE, stroke_width=5, stroke_fill=BLACK)
 
 
 def render_caption_png(dest: Path, words: list[str], highlight: int | None, font_choice: FontChoice) -> Path:
@@ -187,10 +241,7 @@ def render_block_png(dest: Path, text: str, font_choice: FontChoice, y_ratio: fl
     dest.parent.mkdir(parents=True, exist_ok=True)
     img = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    lines = [ln for ln in text.split("\n") if ln.strip()]
-    size = 64 if len(lines) > 3 else 74
-    font = _load_font(font_choice.path, size=size, index=font_choice.index)
-    _draw_block(draw, text, font, y_ratio)
+    _draw_block(draw, text, font_choice, y_ratio)
     img.save(dest, "PNG")
     return dest
 

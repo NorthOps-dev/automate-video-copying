@@ -13,11 +13,11 @@
         <span class="mark"></span>
         <div>
           <strong>Prophet</strong>
-          <p>NorthOps internal · steal the edit, keep the footage</p>
+          <p>NorthOps internal</p>
         </div>
       </div>
       <div class="header-meta">
-        <div class="drive-pill" id="drive-pill">Drive: checking…</div>
+        <div class="drive-pill" id="board-pill">Board: connecting…</div>
         <span class="user-pill" id="user-pill">Signed in</span>
         <button type="button" class="ghost signout" id="signout">Sign out</button>
       </div>
@@ -25,62 +25,133 @@
 
     <main>
       <section class="hero">
-        <p class="eyebrow">NorthOps Prophet</p>
-        <h1>Drop a viral video.<br />Drop your raw folder.<br />Get the same cut.</h1>
+        <p class="eyebrow">How it works</p>
+        <h1>Remake an approved format for the client.</h1>
         <p class="lede">
-          Copies pacing, shot order, and Classic TikTok captions. Uses only clips from your
-          folder. Music stays yours — we copy the rhythm, not the recording.
+          Prophet reads the words on the approved TikTok, swaps drinks and venue for this client, and cuts their footage to that edit.
         </p>
       </section>
 
       <form id="form" class="board">
-        <div class="card">
-          <label>Reference video</label>
-          <p class="hint">Pick a file on your Mac, or paste a TikTok / YouTube / Drive link.</p>
-          <div class="row">
-            <button type="button" class="pick" id="pick-ref">Choose video</button>
-            <input type="file" id="ref-file" accept="video/*" />
+        <section class="card step">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <h2>Who is this for?</h2>
+            <p class="hint">Client name from the Board. Fill the brief so every remake talks like them, not like the original creator.</p>
+            <label for="client">Client</label>
+            <select id="client">
+              <option value="">Loading clients…</option>
+            </select>
+            <div id="brief-box" class="brief hidden">
+              <label>One-liner</label>
+              <input type="text" id="brief-one" placeholder="What they are, in one line" />
+              <label>Location</label>
+              <input type="text" id="brief-loc" placeholder="City / street" />
+              <label>What they sell / do</label>
+              <textarea id="brief-what" rows="3" placeholder="Products, hours, what a regular would say"></textarea>
+              <label>Voice</label>
+              <textarea id="brief-voice" rows="2" placeholder="How they talk on camera"></textarea>
+              <label>Call to action</label>
+              <input type="text" id="brief-cta" placeholder="Come through…" />
+              <label>Never say</label>
+              <input type="text" id="brief-avoid" placeholder="Phrases or vibes to kill" />
+              <div class="row brief-actions">
+                <button type="button" class="pick" id="save-brief">Save brief</button>
+                <p class="picked hidden" id="brief-saved"></p>
+              </div>
+            </div>
           </div>
-          <input type="text" id="ref-url" placeholder="https://www.tiktok.com/@…  or  /Users/you/viral.mp4" />
-        </div>
+        </section>
 
-        <div class="card">
-          <label>Raw footage</label>
-          <p class="hint">Pick a folder of clips, or one video. Finder will open.</p>
-          <div class="row picks">
-            <button type="button" class="pick primary-pick" id="pick-folder">Choose folder</button>
-            <button type="button" class="pick primary-pick" id="pick-footage-video">Choose video</button>
+        <section class="card step">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <h2>The approved format</h2>
+            <p class="hint">Pick the Board design. Watch the original — those on-screen words are what gets remade.</p>
+            <div class="tabs" role="tablist">
+              <button type="button" class="tab on" id="tab-board" data-pane="pane-board">From the Board</button>
+              <button type="button" class="tab" id="tab-file" data-pane="pane-file">File or link</button>
+            </div>
+
+            <div id="pane-board" class="pane">
+              <p class="picked" id="board-status">Pick a client first.</p>
+              <input type="search" id="board-search" placeholder="Search this client’s formats…" />
+              <div class="board-list" id="board-list"></div>
+              <div id="format-preview" class="format-preview hidden">
+                <div class="watch-grid">
+                  <div>
+                    <p class="eyebrow">Watch the original</p>
+                    <video id="original-player" controls playsinline></video>
+                    <p class="hint" id="original-status">Loading the approved video…</p>
+                  </div>
+                  <div>
+                    <p class="eyebrow">Words on the TikTok</p>
+                    <p id="format-hook"></p>
+                    <ol id="format-lines"></ol>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div id="pane-file" class="pane hidden">
+              <div class="row">
+                <button type="button" class="pick primary-pick" id="pick-ref">Choose video</button>
+              </div>
+              <input type="text" id="ref-url" placeholder="Or paste a TikTok / YouTube / Drive link" />
+              <input type="file" id="ref-file" class="hidden" accept="video/*" />
+            </div>
           </div>
-          <p class="picked hidden" id="footage-status"></p>
-          <input type="text" id="footage" required placeholder="No folder or video selected yet" />
-          <button type="button" class="ghost" id="connect-drive">Connect Google Drive instead</button>
-        </div>
+        </section>
 
-        <div class="card split">
-          <div>
+        <section class="card step">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <h2>The client’s footage</h2>
+            <p class="hint">Add the good takes — talking heads, product, room. Prophet spreads them across the format instead of looping the leftover seconds of one clip.</p>
+            <div class="row picks">
+              <button type="button" class="pick primary-pick" id="pick-footage-video">Add videos</button>
+              <button type="button" class="pick" id="pick-folder">Add a folder</button>
+            </div>
+            <ul class="clip-list" id="clip-list"></ul>
+            <p class="picked hidden" id="footage-status">No clips yet.</p>
+          </div>
+        </section>
+
+        <section class="card step">
+          <div class="step-num">4</div>
+          <div class="step-body">
+            <h2>Remake it</h2>
+            <p class="hint">Same words and timing as the TikTok. Drinks, city, and venue swapped for this client.</p>
             <label>Captions</label>
             <select id="captions">
-              <option value="auto">Auto (your speech, else the viral script)</option>
-              <option value="reference">Always the reference script</option>
-              <option value="footage">Always your footage speech</option>
+              <option value="client">Use the words on the TikTok</option>
+              <option value="footage">Only what is said in these clips</option>
             </select>
+            <label class="music-label">Your music (optional)</label>
+            <input type="text" id="music" placeholder="Leave blank unless you have a licensed track" />
+            <button type="submit" id="build">Remake for the client</button>
           </div>
-          <div>
-            <label>Your music (optional)</label>
-            <input type="text" id="music" placeholder="/Users/you/track.mp3" />
-          </div>
-        </div>
-
-        <button type="submit" id="build">Build the cut</button>
+        </section>
       </form>
 
       <section class="progress hidden" id="progress">
+        <p class="eyebrow">Remaking</p>
         <div class="bar"><span id="bar"></span></div>
         <ol id="log"></ol>
       </section>
 
       <section class="result hidden" id="result">
-        <video id="player" controls playsinline></video>
+        <p class="eyebrow">Done</p>
+        <div class="watch-grid compare">
+          <div>
+            <p class="eyebrow">Original</p>
+            <video id="compare-original" controls playsinline></video>
+          </div>
+          <div>
+            <p class="eyebrow">Your remake</p>
+            <video id="player" controls playsinline></video>
+          </div>
+        </div>
         <div class="actions">
           <a id="dl-mp4" download>Download MP4</a>
           <a id="dl-xml" download>Final Cut XML</a>

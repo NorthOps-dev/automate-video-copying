@@ -8,7 +8,7 @@ from videocopier.pipeline import run_job, save_state
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="prophet", description="NorthOps Prophet — copy a viral edit onto your footage.")
+    parser = argparse.ArgumentParser(prog="prophet", description="NorthOps Prophet — remake an approved TikTok format for a client.")
     sub = parser.add_subparsers(dest="cmd")
 
     serve = sub.add_parser("serve", help="Open the local web app")
@@ -19,7 +19,7 @@ def main() -> None:
     run.add_argument("--reference", required=True, help="Local file, TikTok/YouTube URL, or Drive link")
     run.add_argument("--footage", required=True, help="Local folder or Google Drive folder link")
     run.add_argument("--music", default=None, help="Optional licensed/original track")
-    run.add_argument("--captions", default="auto", choices=["auto", "reference", "footage"])
+    run.add_argument("--captions", default="client", choices=["client", "auto", "reference", "footage"])
     run.add_argument("--out", default=None, help="Copy finished mp4 here")
 
     parser.set_defaults(cmd="serve", host="127.0.0.1", port=8000)

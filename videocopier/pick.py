@@ -68,6 +68,35 @@ def pick_file(prompt: str = "Select a video") -> Path:
     return Path(chosen).expanduser().resolve()
 
 
+def pick_files(prompt: str = "Select one or more clips") -> list[Path]:
+    if sys.platform == "darwin":
+        script = f'''
+tell application "System Events" to activate
+set theFiles to (choose file with prompt "{prompt}" with multiple selections allowed of type {{"public.movie", "public.mpeg-4", "com.apple.quicktime-movie", "mp4", "mov", "m4v"}})
+set out to ""
+if class of theFiles is list then
+  repeat with f in theFiles
+    set out to out & POSIX path of f & linefeed
+  end repeat
+else
+  set out to POSIX path of theFiles & linefeed
+end if
+return out
+'''
+        text = _osascript(script)
+        return [Path(line).expanduser().resolve() for line in text.splitlines() if line.strip()]
+    from tkinter import Tk, filedialog
+
+    root = Tk()
+    root.withdraw()
+    root.wm_attributes("-topmost", 1)
+    chosen = filedialog.askopenfilenames(title=prompt)
+    root.destroy()
+    if not chosen:
+        raise PickCancelled()
+    return [Path(p).expanduser().resolve() for p in chosen]
+
+
 def folder_info(path: Path) -> dict:
     videos = list_videos(path)
     return {

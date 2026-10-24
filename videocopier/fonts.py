@@ -12,7 +12,7 @@ FONTS_DIR = ROOT / "fonts"
 # commercial face, so on macOS we use Avenir Next Bold (closest system match)
 # and fall back to OFL Montserrat Bold everywhere else.
 AVENIR_NEXT = Path("/System/Library/Fonts/Avenir Next.ttc")
-AVENIR_NEXT_BOLD_INDEX = 0  # ('Avenir Next', 'Bold')
+AVENIR_NEXT_BOLD_INDEX = 2  # Demi Bold — closest to CapCut Classic / Proxima Semibold
 
 MONTSERRAT_URLS = [
     "https://github.com/JulietaUla/Montserrat/raw/master/fonts/ttf/Montserrat-Bold.ttf",

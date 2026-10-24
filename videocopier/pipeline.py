@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from videocopier.adapt import captions_from_design, tiktok_cards
+from videocopier.rewrite import coalesce_cards, remake_for_client
 from videocopier.analyze import analyze_reference
+from videocopier.board import BoardError, get_slot
 from videocopier.compile import compile_cut
 from videocopier.fcpxml import write_fcpxml
 from videocopier.index import index_footage
+from videocopier.knowledge import load_brief
 from videocopier.match import match_footage
 from videocopier.media import list_videos
 from videocopier.models import JobSpec, JobState
@@ -43,25 +47,69 @@ def run_job(job_id: str) -> JobState:
     save_state(state)
     spec: JobSpec = state.spec
     try:
-        _log(state, "Resolving reference video…")
+        slot = None
+        brief = {}
+        if spec.reference.startswith("board:"):
+            try:
+                slot = get_slot(spec.reference.split(":", 1)[1])
+            except BoardError as exc:
+                _log(state, f"Board script unavailable ({exc}); using reference analysis.")
+                slot = None
+            if slot:
+                brief = load_brief(slot.get("clientId") or spec.client_id, slot.get("clientName") or "")
+                who = brief.get("name") or slot.get("clientName") or "the client"
+                _log(state, f"Remaking for {who}: {slot.get('hook') or 'approved format'}")
+                if brief.get("one_liner"):
+                    _log(state, f"Brief — {brief['one_liner']}")
+                if slot.get("shotDirection"):
+                    _log(state, "Using Board shot direction to pick takes.")
+
+        _log(state, "Resolving the approved format video…")
         reference = resolve_reference(spec.reference, work, progress=lambda m: _log(state, m))
-        _log(state, "Resolving footage folder…")
-        footage = resolve_footage(spec.footage, work, progress=lambda m: _log(state, m))
+        _log(state, "Gathering client footage…")
+        footage = resolve_footage(
+            spec.footage,
+            work,
+            progress=lambda m: _log(state, m),
+            extra_paths=spec.footage_paths,
+        )
         videos = list_videos(footage)
         if not videos:
             raise FileNotFoundError("No video files found in that footage folder.")
         _log(state, f"Using {len(videos)} clips")
 
-        _log(state, "Analyzing reference edit…")
+        _log(state, "Reading the approved cut (pacing + shot order)…")
         blueprint = analyze_reference(reference, work / "ref", progress=lambda m: _log(state, m))
+        if spec.caption_mode != "footage":
+            on_video = tiktok_cards(blueprint.captions)
+            if on_video and spec.caption_mode in {"client", "auto"}:
+                remade = coalesce_cards(remake_for_client(on_video, slot or {}, brief))
+                blueprint.captions = remade or on_video
+                _log(state, f"Using the words on the TikTok ({len(blueprint.captions)} cards)")
+                for card in blueprint.captions:
+                    preview = card.text.replace("\n", " / ")
+                    _log(state, f"  {card.start:.1f}s  {preview[:80]}")
+            elif on_video:
+                blueprint.captions = on_video
+                _log(state, f"Using the TikTok on-screen text ({len(on_video)} cards)")
+            elif spec.caption_mode in {"client", "auto"} and slot:
+                client_caps = captions_from_design(slot, brief, blueprint.captions, blueprint.duration)
+                if client_caps:
+                    blueprint.captions = client_caps
+                    _log(state, f"No TikTok cards — using Board copy ({len(client_caps)} cards)")
         (work / "blueprint.json").write_text(blueprint.model_dump_json(indent=2))
 
         _log(state, "Indexing your footage…")
         index = index_footage(footage, work / "idx", progress=lambda m: _log(state, m))
         (work / "index.json").write_text(index.model_dump_json(indent=2))
 
-        _log(state, "Matching shots to clips…")
-        cutlist = match_footage(blueprint, index, threshold=spec.match_threshold)
+        _log(state, "Picking the strongest takes for this format…")
+        cutlist = match_footage(
+            blueprint,
+            index,
+            threshold=spec.match_threshold,
+            shot_direction=(slot or {}).get("shotDirection") or "",
+        )
         cutlist_path = work / "cutlist.json"
         cutlist_path.write_text(cutlist.model_dump_json(indent=2))
 

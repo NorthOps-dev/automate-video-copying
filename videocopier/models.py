@@ -5,7 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-CaptionMode = Literal["auto", "reference", "footage"]
+CaptionMode = Literal["client", "auto", "reference", "footage"]
 SlotStatus = Literal["filled", "unfilled"]
 JobStatus = Literal["queued", "running", "done", "error"]
 
@@ -70,6 +70,7 @@ class Scene(BaseModel):
 class FootageIndex(BaseModel):
     scenes: list[Scene] = Field(default_factory=list)
     files: list[str] = Field(default_factory=list)
+    durations: dict[str, float] = Field(default_factory=dict)
 
 
 class Slot(BaseModel):
@@ -96,10 +97,12 @@ class CutList(BaseModel):
 
 class JobSpec(BaseModel):
     reference: str
-    footage: str
+    footage: str = ""
+    footage_paths: list[str] = Field(default_factory=list)
     music: str | None = None
-    caption_mode: CaptionMode = "auto"
-    match_threshold: float = 0.18
+    caption_mode: CaptionMode = "client"
+    match_threshold: float = 0.08
+    client_id: str = ""
 
 
 class JobState(BaseModel):

@@ -5,9 +5,11 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
+from videocopier.adapt import tiktok_cards
 from videocopier.captions import words_to_lines
 from videocopier.embed import embed_frame
 from videocopier.ocr import ocr_captions
+from videocopier.rewrite import coalesce_cards
 from videocopier.media import (
     detect_cuts,
     extract_audio_wav,
@@ -74,19 +76,58 @@ def _role_for_shot(index: int, n: int, start: float, duration_total: float, has_
     return "broll"
 
 
+def _refine_bounds(
+    bounds: list[tuple[float, float]],
+    captions: list,
+    duration: float,
+) -> list[tuple[float, float]]:
+    """Lock the remake to the TikTok's real edit, not every flicker."""
+    points = [0.0]
+    cards = [c for c in captions if getattr(c, "kind", "") == "overlay" and c.start > 0.35]
+    for card in cards:
+        points.append(float(card.start))
+    for start, _end in bounds:
+        if start > 0.4 and all(abs(start - t) > 0.8 for t in points):
+            points.append(start)
+    points.append(duration)
+    points = sorted(set(round(t, 3) for t in points if 0 <= t <= duration))
+    cleaned = [points[0]]
+    for t in points[1:]:
+        if t - cleaned[-1] >= 0.75:
+            cleaned.append(t)
+    if cleaned[-1] < duration - 0.05:
+        cleaned.append(duration)
+    else:
+        cleaned[-1] = duration
+    refined = shot_bounds(cleaned, duration, min_len=0.85)
+    while len(refined) > 12:
+        lengths = [(i, b - a) for i, (a, b) in enumerate(refined)]
+        i, _ = min(lengths, key=lambda x: x[1])
+        if i == 0:
+            refined[0] = (refined[0][0], refined[1][1])
+            refined.pop(1)
+        else:
+            refined[i - 1] = (refined[i - 1][0], refined[i][1])
+            refined.pop(i)
+    return refined
+
+
 def analyze_reference(path: Path, work: Path, progress=lambda m: None) -> Blueprint:
     work.mkdir(parents=True, exist_ok=True)
     info = video_info(path)
     progress("Detecting cuts in the reference…")
-    cuts = detect_cuts(path, work)
-    bounds = shot_bounds(cuts, info["duration"])
-    progress(f"Found {len(bounds)} shots")
+    cuts = detect_cuts(path, work, threshold=0.28)
+    bounds = shot_bounds(cuts, info["duration"], min_len=0.75)
 
     progress("Transcribing reference (captions + script)…")
     transcript, words = transcribe(path, work / "ref_audio.wav")
     speech_caps = words_to_lines(words)
     overlay_caps = ocr_captions(path, info["duration"], progress=progress)
     captions = overlay_caps or speech_caps
+    cards = coalesce_cards(tiktok_cards(overlay_caps)) if overlay_caps else []
+    if cards:
+        bounds = _refine_bounds(bounds, cards, info["duration"])
+    progress(f"Locked {len(bounds)} shots to the TikTok edit")
 
     progress("Reading music energy…")
     bpm, beats = None, []

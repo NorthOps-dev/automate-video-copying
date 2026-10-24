@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import shutil
 from pathlib import Path
@@ -45,6 +46,11 @@ def _yt_dlp_download(url: str, dest_dir: Path) -> Path:
 
 def resolve_reference(spec: str, work: Path, progress=lambda m: None) -> Path:
     text = spec.strip().strip('"')
+    if text.startswith("board:"):
+        from videocopier.board import download_source
+
+        slot_id = text.split(":", 1)[1].strip()
+        return download_source(slot_id, work / "reference_src", progress=progress)
     local = Path(text).expanduser()
     if local.exists() and local.is_file():
         return local.resolve()
@@ -80,8 +86,50 @@ def resolve_reference(spec: str, work: Path, progress=lambda m: None) -> Path:
     )
 
 
-def resolve_footage(spec: str, work: Path, progress=lambda m: None) -> Path:
-    text = spec.strip().strip('"')
+def _gather_local_clips(paths: list[str], dest: Path) -> Path:
+    dest.mkdir(parents=True, exist_ok=True)
+    used: set[str] = set()
+    for raw in paths:
+        src = Path(raw).expanduser()
+        files = list_videos(src) if src.exists() else []
+        if src.exists() and src.is_file() and src.suffix.lower() in VIDEO_EXTS:
+            files = [src.resolve()]
+        for clip in files:
+            name = clip.name
+            if name in used:
+                name = f"{clip.stem}-{clip.stat().st_size}{clip.suffix}"
+            used.add(name)
+            target = dest / name
+            if target.exists():
+                continue
+            try:
+                target.symlink_to(clip)
+            except OSError:
+                shutil.copy2(clip, target)
+    if not list_videos(dest):
+        raise FileNotFoundError("None of those files were videos.")
+    return dest
+
+
+def resolve_footage(spec: str, work: Path, progress=lambda m: None, extra_paths: list[str] | None = None) -> Path:
+    paths = [p for p in (extra_paths or []) if str(p).strip()]
+    text = (spec or "").strip().strip('"')
+    if text.startswith("["):
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, list):
+                paths.extend(str(p) for p in parsed)
+                text = ""
+        except json.JSONDecodeError:
+            pass
+    elif "\n" in text:
+        paths.extend(ln.strip() for ln in text.splitlines() if ln.strip())
+        text = ""
+
+    if paths:
+        progress(f"Collecting {len(paths)} clip source(s)…")
+        return _gather_local_clips(paths, work / "footage_pick")
+
     local = Path(text).expanduser()
     if local.exists():
         return local.resolve()
