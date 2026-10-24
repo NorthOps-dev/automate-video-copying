@@ -36,3 +36,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["videocopier"]
+
+[tool.vercel]
+entrypoint = "videocopier.server:app"
