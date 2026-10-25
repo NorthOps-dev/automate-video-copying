@@ -17,6 +17,8 @@ credentials.json
 fonts/*.ttf
 fonts/*.otf
 fonts/*.woff*
+!fonts/TikTokSans.ttf
+!fonts/TikTokSans-ExtraBold.ttf
 *.mp4
 *.mov
 *.mkv

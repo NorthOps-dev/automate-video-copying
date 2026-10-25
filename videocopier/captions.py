@@ -130,6 +130,11 @@ def _load_font(path: Path, size: int = 76, index: int = 0) -> ImageFont.FreeType
     except Exception:
         pass
     try:
+        font.set_variation_by_name("Bold")
+        return font
+    except Exception:
+        pass
+    try:
         axes = font.get_variation_axes()
         values = []
         for axis in axes:
@@ -207,7 +212,7 @@ def _draw_phrase(draw: ImageDraw.ImageDraw, words: list[str], highlight: int | N
         x = max(SAFE_X, (WIDTH - min(total, MAX_TEXT_W)) / 2)
         for word in tokens:
             fill = CYAN if highlight == cursor else WHITE
-            draw.text((x, y + row_i * line_h), word, font=font, fill=fill, stroke_width=6, stroke_fill=BLACK)
+            draw.text((x, y + row_i * line_h), word, font=font, fill=fill, stroke_width=8, stroke_fill=BLACK)
             x += font.getlength(word) + space
             cursor += 1
 
@@ -221,10 +226,10 @@ def _draw_block(draw: ImageDraw.ImageDraw, text: str, font_choice: FontChoice, y
     y = HEIGHT * max(0.06, min(y_ratio, 0.72))
     y = max(TOP_MIN, min(y, HEIGHT - block_h - 160))
     for i, line in enumerate(lines):
-        bbox = draw.textbbox((0, 0), line, font=font, stroke_width=5)
+        bbox = draw.textbbox((0, 0), line, font=font, stroke_width=8)
         tw = bbox[2] - bbox[0]
         x = max(SAFE_X, (WIDTH - tw) / 2)
-        draw.text((x, y + i * line_h), line, font=font, fill=WHITE, stroke_width=5, stroke_fill=BLACK)
+        draw.text((x, y + i * line_h), line, font=font, fill=WHITE, stroke_width=8, stroke_fill=BLACK)
 
 
 def render_caption_png(dest: Path, words: list[str], highlight: int | None, font_choice: FontChoice) -> Path:
