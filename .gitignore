@@ -19,6 +19,7 @@ fonts/*.otf
 fonts/*.woff*
 !fonts/TikTokSans.ttf
 !fonts/TikTokSans-ExtraBold.ttf
+!fonts/Montserrat-SemiBold.ttf
 *.mp4
 *.mov
 *.mkv

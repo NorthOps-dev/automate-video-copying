@@ -14,6 +14,9 @@ SAFE_X = 70
 MAX_TEXT_W = WIDTH - SAFE_X * 2
 TOP_MIN = 90
 MAX_BLOCK_H = 560
+# CapCut/TikTok Classic: Semibold, thinner outline, a little tracking.
+STROKE = 5
+TRACKING = 3.2
 CYAN = (0, 242, 234, 255)
 WHITE = (255, 255, 255, 255)
 BLACK = (0, 0, 0, 255)
@@ -115,7 +118,7 @@ def _axis_name(axis: dict) -> str:
     return str(raw)
 
 
-def _load_font(path: Path, size: int = 76, index: int = 0) -> ImageFont.FreeTypeFont:
+def _load_font(path: Path, size: int = 56, index: int = 0) -> ImageFont.FreeTypeFont:
     font = ImageFont.truetype(str(path), size=size, index=index)
     name = ""
     try:
@@ -124,23 +127,19 @@ def _load_font(path: Path, size: int = 76, index: int = 0) -> ImageFont.FreeType
         pass
     if "tiktok" not in name and "tiktok" not in path.name.lower():
         return font
-    try:
-        font.set_variation_by_name("ExtraBold")
-        return font
-    except Exception:
-        pass
-    try:
-        font.set_variation_by_name("Bold")
-        return font
-    except Exception:
-        pass
+    for style in ("SemiBold", "Bold"):
+        try:
+            font.set_variation_by_name(style)
+            return font
+        except Exception:
+            pass
     try:
         axes = font.get_variation_axes()
         values = []
         for axis in axes:
             tag = _axis_name(axis).lower()
             if "weight" in tag or tag == "wght":
-                values.append(800)
+                values.append(600)
             elif "optical" in tag or tag == "opsz":
                 values.append(axis.get("maximum", 36) or 36)
             elif "width" in tag or tag == "wdth":
@@ -156,6 +155,19 @@ def _load_font(path: Path, size: int = 76, index: int = 0) -> ImageFont.FreeType
     return font
 
 
+def _line_width(font, text: str) -> float:
+    if not text:
+        return 0.0
+    return sum(font.getlength(ch) for ch in text) + TRACKING * max(len(text) - 1, 0)
+
+
+def _draw_tracked(draw: ImageDraw.ImageDraw, x: float, y: float, text: str, font, fill) -> None:
+    cursor = x
+    for i, ch in enumerate(text):
+        draw.text((cursor, y), ch, font=font, fill=fill, stroke_width=STROKE, stroke_fill=BLACK)
+        cursor += font.getlength(ch) + (TRACKING if i < len(text) - 1 else 0)
+
+
 def _wrap_to_width(text: str, font, max_w: float = MAX_TEXT_W) -> list[str]:
     lines: list[str] = []
     for para in text.replace("\r", "").split("\n"):
@@ -165,7 +177,7 @@ def _wrap_to_width(text: str, font, max_w: float = MAX_TEXT_W) -> list[str]:
         cur = words[0]
         for word in words[1:]:
             trial = f"{cur} {word}"
-            if font.getlength(_classic_text(trial)) <= max_w:
+            if _line_width(font, _classic_text(trial)) <= max_w:
                 cur = trial
             else:
                 lines.append(cur)
@@ -174,27 +186,28 @@ def _wrap_to_width(text: str, font, max_w: float = MAX_TEXT_W) -> list[str]:
     return lines or [text.strip()]
 
 
-def _fit_block_font(font_choice: FontChoice, text: str, start: int = 74):
+def _fit_block_font(font_choice: FontChoice, text: str, start: int = 50):
     source = [ln.strip() for ln in text.replace("\r", "").split("\n") if ln.strip()]
     # Shrink first so the TikTok's own line breaks stay intact.
+    sizes = (start, 48, 44, 40, 36)
     if source:
-        for size in (start, 64, 56, 48, 42, 36):
+        for size in sizes:
             font = _load_font(font_choice.path, size=size, index=font_choice.index)
-            if all(font.getlength(_classic_text(ln)) <= MAX_TEXT_W for ln in source):
+            if all(_line_width(font, _classic_text(ln)) <= MAX_TEXT_W for ln in source):
                 lines = [_classic_text(ln) for ln in source]
-                line_h = font.size + 10
+                line_h = int(font.size + 14)
                 if line_h * len(lines) <= MAX_BLOCK_H:
                     return font, lines[:8], line_h
-    for size in (start, 64, 56, 48, 42, 36):
+    for size in sizes:
         font = _load_font(font_choice.path, size=size, index=font_choice.index)
         lines = [_classic_text(ln) for ln in _wrap_to_width(text, font) if ln.strip()]
-        line_h = font.size + 12
-        widest = max((font.getlength(ln) for ln in lines), default=0)
+        line_h = int(font.size + 14)
+        widest = max((_line_width(font, ln) for ln in lines), default=0)
         if widest <= MAX_TEXT_W and line_h * len(lines) <= MAX_BLOCK_H and len(lines) <= 8:
             return font, lines[:8], line_h
     font = _load_font(font_choice.path, size=36, index=font_choice.index)
     lines = [_classic_text(ln) for ln in _wrap_to_width(text, font) if ln.strip()]
-    return font, lines[:8], font.size + 12
+    return font, lines[:8], int(font.size + 14)
 
 
 def _draw_phrase(draw: ImageDraw.ImageDraw, words: list[str], highlight: int | None, font, y: float | None = None) -> None:
@@ -206,14 +219,14 @@ def _draw_phrase(draw: ImageDraw.ImageDraw, words: list[str], highlight: int | N
     cursor = 0
     for row_i, row in enumerate(rows):
         tokens = row.split()
-        space = font.getlength(" ")
-        widths = [font.getlength(w) for w in tokens]
+        space = _line_width(font, " ")
+        widths = [_line_width(font, w) for w in tokens]
         total = sum(widths) + space * max(len(tokens) - 1, 0)
         x = max(SAFE_X, (WIDTH - min(total, MAX_TEXT_W)) / 2)
         for word in tokens:
             fill = CYAN if highlight == cursor else WHITE
-            draw.text((x, y + row_i * line_h), word, font=font, fill=fill, stroke_width=8, stroke_fill=BLACK)
-            x += font.getlength(word) + space
+            _draw_tracked(draw, x, y + row_i * line_h, word, font, fill)
+            x += _line_width(font, word) + space
             cursor += 1
 
 
@@ -226,10 +239,9 @@ def _draw_block(draw: ImageDraw.ImageDraw, text: str, font_choice: FontChoice, y
     y = HEIGHT * max(0.06, min(y_ratio, 0.72))
     y = max(TOP_MIN, min(y, HEIGHT - block_h - 160))
     for i, line in enumerate(lines):
-        bbox = draw.textbbox((0, 0), line, font=font, stroke_width=8)
-        tw = bbox[2] - bbox[0]
+        tw = _line_width(font, line)
         x = max(SAFE_X, (WIDTH - tw) / 2)
-        draw.text((x, y + i * line_h), line, font=font, fill=WHITE, stroke_width=8, stroke_fill=BLACK)
+        _draw_tracked(draw, x, y + i * line_h, line, font, WHITE)
 
 
 def render_caption_png(dest: Path, words: list[str], highlight: int | None, font_choice: FontChoice) -> Path:

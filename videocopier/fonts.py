@@ -7,13 +7,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 FONTS_DIR = ROOT / "fonts"
+MONTSERRAT = FONTS_DIR / "Montserrat-SemiBold.ttf"
 TIKTOK_SANS = FONTS_DIR / "TikTokSans.ttf"
-TIKTOK_SANS_XBOLD = FONTS_DIR / "TikTokSans-ExtraBold.ttf"
-
-TIKTOK_FONT_URLS = [
-    "https://github.com/google/fonts/raw/main/ofl/tiktoksans/TikTokSans%5Bopsz%2Cslnt%2Cwdth%2Cwght%5D.ttf",
-    "https://github.com/google/fonts/raw/main/ofl/tiktoksans/static/TikTokSans_36pt-ExtraBold.ttf",
-]
+AVENIR_NEXT = Path("/System/Library/Fonts/Avenir Next.ttc")
+# Medium in Apple's Avenir Next.ttc — fill is thin; the outline makes Classic.
+# (Demi Bold + thick stroke reads as ExtraBold. Original cards are not that.)
+AVENIR_CLASSIC_INDEX = 5
 
 
 class FontChoice:
@@ -58,20 +57,16 @@ def _download_from_release(dest: Path) -> bool:
 
 
 def ensure_caption_font() -> FontChoice:
-    """TikTok Sans — native TikTok caption face, ExtraBold instance."""
-    for path in (TIKTOK_SANS, TIKTOK_SANS_XBOLD):
-        if path.exists() and path.stat().st_size > 10_000:
-            return FontChoice(path, "TikTok Sans")
-    if _download(TIKTOK_FONT_URLS[0], TIKTOK_SANS):
+    """Classic TikTok card face: Semibold geometric, not ExtraBold blobs."""
+    if AVENIR_NEXT.exists():
+        return FontChoice(AVENIR_NEXT, "Avenir Next", index=AVENIR_CLASSIC_INDEX)
+    if MONTSERRAT.exists() and MONTSERRAT.stat().st_size > 10_000:
+        return FontChoice(MONTSERRAT, "Montserrat")
+    if TIKTOK_SANS.exists() and TIKTOK_SANS.stat().st_size > 10_000:
         return FontChoice(TIKTOK_SANS, "TikTok Sans")
     if _download_from_release(TIKTOK_SANS):
         return FontChoice(TIKTOK_SANS, "TikTok Sans")
-    for url in TIKTOK_FONT_URLS[1:]:
-        if _download(url, TIKTOK_SANS_XBOLD):
-            return FontChoice(TIKTOK_SANS_XBOLD, "TikTok Sans")
-    raise FileNotFoundError(
-        "Could not download TikTok Sans. Put the TTF at fonts/TikTokSans.ttf"
-    )
+    raise FileNotFoundError("Need Avenir Next, fonts/Montserrat-SemiBold.ttf, or TikTok Sans.")
 
 
 def ensure_tiktok_font() -> FontChoice:

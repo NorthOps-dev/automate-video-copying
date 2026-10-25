@@ -1,1 +1,1 @@
-Captions use **TikTok Sans** (ExtraBold), TikTok’s native caption face.
+Captions use TikTok **Classic**: Semibold geometric (Avenir Next Demi Bold on Mac, Montserrat SemiBold elsewhere), white fill, thin black outline, light tracking. ExtraBold TikTok Sans is not the card face on these formats.
