@@ -16,6 +16,7 @@ const state = {
   clientId: "",
   brief: null,
   refMode: "board",
+  refFile: null,
 };
 
 async function api(url, opts) {
@@ -67,7 +68,7 @@ clipList.addEventListener("click", (e) => {
 });
 
 function persistClips() {
-  sessionStorage.setItem("prophetClips", JSON.stringify(state.clips));
+  /* File uploads cannot be restored from sessionStorage */
 }
 
 function addClips(paths, names) {
@@ -76,7 +77,6 @@ function addClips(paths, names) {
     state.clips.push({ path, name: names[i] || path.split("/").pop() });
   });
   renderClips();
-  persistClips();
 }
 
 document.getElementById("pick-folder").addEventListener("click", async () => {
@@ -95,38 +95,33 @@ document.getElementById("pick-folder").addEventListener("click", async () => {
   }
 });
 
-document.getElementById("pick-footage-video").addEventListener("click", async () => {
-  const btn = document.getElementById("pick-footage-video");
-  btn.disabled = true;
-  btn.textContent = "Waiting for Finder…";
-  try {
-    const data = await nativePick("/api/pick/files");
-    if (data.cancelled) return;
-    addClips(data.paths, data.names);
-  } catch (err) {
-    alert(err.message || err);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = "Add videos";
-  }
+document.getElementById("pick-footage-video").addEventListener("click", () => {
+  document.getElementById("footage-files").click();
 });
 
-document.getElementById("pick-ref").addEventListener("click", async () => {
-  const btn = document.getElementById("pick-ref");
-  btn.disabled = true;
-  try {
-    const data = await nativePick("/api/pick/file", "?kind=video");
-    if (data.cancelled) return;
-    document.getElementById("ref-url").value = data.path;
-    state.boardId = "";
-    document.getElementById("format-preview").classList.remove("hidden");
-    document.getElementById("format-hook").textContent = data.name || "Original";
-    playOriginal(`/api/local/video?path=${encodeURIComponent(data.path)}`, "Play the original, then remake it.");
-  } catch (err) {
-    alert(err.message || err);
-  } finally {
-    btn.disabled = false;
-  }
+document.getElementById("footage-files").addEventListener("change", (e) => {
+  const files = [...(e.target.files || [])];
+  files.forEach((file) => {
+    if (state.clips.some((c) => c.name === file.name && c.file && c.file.size === file.size)) return;
+    state.clips.push({ file, name: file.name });
+  });
+  e.target.value = "";
+  renderClips();
+});
+
+document.getElementById("pick-ref").addEventListener("click", () => {
+  document.getElementById("ref-file").click();
+});
+
+document.getElementById("ref-file").addEventListener("change", (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  state.refFile = file;
+  state.boardId = "";
+  document.getElementById("ref-url").value = "";
+  document.getElementById("format-preview").classList.remove("hidden");
+  document.getElementById("format-hook").textContent = file.name;
+  playOriginal(URL.createObjectURL(file), "Play the original, then remake it.");
 });
 
 function hidePreview() {
@@ -369,7 +364,6 @@ form.addEventListener("submit", async (e) => {
 
   const captions = document.getElementById("captions").value;
   const music = document.getElementById("music").value.trim();
-  const footagePaths = state.clips.map((c) => c.path);
   let reference = "";
   if (state.refMode === "board" && state.boardId) {
     reference = `board:${state.boardId}`;
@@ -382,30 +376,30 @@ form.addEventListener("submit", async (e) => {
     buildBtn.disabled = false;
     return;
   }
-  if (!reference) {
+  if (!reference && !state.refFile) {
     addLog("Step 2 — pick the approved format to remake.", true);
     buildBtn.disabled = false;
     return;
   }
-  if (!footagePaths.length) {
-    addLog("Step 3 — add the client’s footage.", true);
+  if (!state.clips.length) {
+    addLog("Step 3 — upload the client’s footage.", true);
     buildBtn.disabled = false;
     return;
   }
 
   try {
-    const res = await api("/api/jobs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        reference,
-        footage: "",
-        footage_paths: footagePaths,
-        music: music || null,
-        caption_mode: captions,
-        client_id: state.clientId,
-      }),
+    const body = new FormData();
+    body.append("reference", reference);
+    body.append("client_id", state.clientId || "");
+    body.append("caption_mode", captions);
+    if (music) body.append("music", music);
+    if (state.refFile) body.append("reference_file", state.refFile, state.refFile.name);
+    state.clips.forEach((clip) => {
+      if (clip.file) body.append("footage", clip.file, clip.name);
+      else if (clip.path) body.append("footage", clip.path);
     });
+    addLog("Uploading footage…");
+    const res = await api("/api/jobs", { method: "POST", body });
     const job = await res.json();
     if (!res.ok) throw new Error(job.detail || "Could not start job");
     poll(job.id);
@@ -486,12 +480,6 @@ async function loadLastRemake() {
     const data = await api("/api/jobs/latest").then((r) => r.json());
     if (!data.job) return;
     const spec = data.job.spec || {};
-    if (!state.clips.length && spec.footage_paths?.length) {
-      addClips(
-        spec.footage_paths,
-        spec.footage_paths.map((p) => p.split("/").pop())
-      );
-    }
     if ((spec.reference || "").startsWith("board:")) {
       state.boardId = spec.reference.split(":")[1];
       renderBoard();
@@ -504,15 +492,6 @@ async function loadLastRemake() {
   } catch {
     /* first run has no remake yet */
   }
-}
-
-try {
-  const saved = JSON.parse(sessionStorage.getItem("prophetClips") || "[]");
-  if (Array.isArray(saved) && saved.length) {
-    state.clips = saved.filter((c) => c && c.path);
-  }
-} catch {
-  /* ignore */
 }
 
 loadBoard().then(loadLastRemake);

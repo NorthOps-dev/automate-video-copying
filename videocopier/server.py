@@ -21,6 +21,8 @@ from videocopier.pipeline import job_dir, load_state, save_state
 STATIC = Path(__file__).resolve().parent / "static"
 os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
 
+HOSTED = bool(os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("RAILWAY_PUBLIC_DOMAIN"))
+
 app = FastAPI(title="NorthOps Prophet", version="0.1.0")
 app.add_middleware(AuthMiddleware)
 app.add_middleware(
@@ -28,7 +30,7 @@ app.add_middleware(
     secret_key=session_secret(),
     session_cookie="prophet",
     same_site="lax",
-    https_only=False,
+    https_only=HOSTED,
     max_age=60 * 60 * 24 * 14,
 )
 
@@ -69,7 +71,7 @@ async def logout(request: Request):
 
 @app.get("/api/me")
 def me(request: Request):
-    return {"email": request.session.get("user")}
+    return {"email": request.session.get("user"), "hosted": HOSTED}
 
 
 def _on_vercel() -> bool:
@@ -289,20 +291,81 @@ def _start_job(job_id: str) -> None:
     if _on_vercel():
         raise HTTPException(
             501,
-            "Remakes cannot run on Vercel. On a Mac: uv sync && uv run python -m videocopier serve",
+            "Vercel cannot remake videos. Use the Railway / Prophet URL, or run it on a Mac.",
         )
     from videocopier.pipeline import run_job
 
     threading.Thread(target=run_job, args=(job_id,), daemon=True).start()
 
 
+def _safe_upload_name(name: str) -> str:
+    import re
+
+    base = Path(name or "clip.mp4").name
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", base)[:120] or "clip.mp4"
+
+
 @app.post("/api/jobs")
-async def create_job(spec: JobSpec):
-    if not spec.reference.strip():
-        raise HTTPException(400, "Pick the approved format to remake.")
-    if not spec.footage.strip() and not spec.footage_paths:
-        raise HTTPException(400, "Pick the client's footage.")
+async def create_job(request: Request):
+    ctype = request.headers.get("content-type", "")
     job_id = uuid.uuid4().hex[:12]
+    work = job_dir(job_id)
+    work.mkdir(parents=True, exist_ok=True)
+    extra: list[str] = []
+    reference = ""
+    client_id = ""
+    caption_mode = "client"
+    music = None
+    if "multipart/form-data" in ctype:
+        form = await request.form()
+        reference = str(form.get("reference") or "").strip()
+        client_id = str(form.get("client_id") or "").strip()
+        caption_mode = str(form.get("caption_mode") or "client")
+        music = str(form.get("music") or "").strip() or None
+        footage_dir = work / "footage_pick"
+        footage_dir.mkdir(parents=True, exist_ok=True)
+        uploads = form.getlist("footage")
+        for item in uploads:
+            filename = getattr(item, "filename", None)
+            if not filename:
+                path = str(item).strip()
+                if path:
+                    extra.append(path)
+                continue
+            dest = footage_dir / _safe_upload_name(filename)
+            dest.write_bytes(await item.read())
+            extra.append(str(dest))
+        ref_file = form.get("reference_file")
+        if ref_file is not None and getattr(ref_file, "filename", None):
+            dest = work / "reference_src"
+            dest.mkdir(parents=True, exist_ok=True)
+            out = dest / _safe_upload_name(ref_file.filename)
+            out.write_bytes(await ref_file.read())
+            if not reference:
+                reference = str(out)
+    else:
+        spec = JobSpec.model_validate(await request.json())
+        if not spec.reference.strip():
+            raise HTTPException(400, "Pick the approved format to remake.")
+        if not spec.footage.strip() and not spec.footage_paths:
+            raise HTTPException(400, "Upload the client's footage.")
+        state = JobState(id=job_id, spec=spec, status="queued", step="queued")
+        save_state(state)
+        _start_job(job_id)
+        return state
+
+    if not reference:
+        raise HTTPException(400, "Pick the approved format to remake.")
+    if not extra:
+        raise HTTPException(400, "Upload the client's footage.")
+    spec = JobSpec(
+        reference=reference,
+        footage="",
+        footage_paths=extra,
+        music=music,
+        caption_mode=caption_mode,  # type: ignore[arg-type]
+        client_id=client_id,
+    )
     state = JobState(id=job_id, spec=spec, status="queued", step="queued")
     save_state(state)
     _start_job(job_id)

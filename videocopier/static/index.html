@@ -95,7 +95,7 @@
 
             <div id="pane-file" class="pane hidden">
               <div class="row">
-                <button type="button" class="pick primary-pick" id="pick-ref">Choose video</button>
+                <button type="button" class="pick primary-pick" id="pick-ref">Upload format video</button>
               </div>
               <input type="text" id="ref-url" placeholder="Or paste a TikTok / YouTube / Drive link" />
               <input type="file" id="ref-file" class="hidden" accept="video/*" />
@@ -107,11 +107,12 @@
           <div class="step-num">3</div>
           <div class="step-body">
             <h2>The client’s footage</h2>
-            <p class="hint">Add the good takes — talking heads, product, room. Prophet spreads them across the format instead of looping the leftover seconds of one clip.</p>
+            <p class="hint">Upload the takes from anyone’s computer — talking heads, product, room.</p>
             <div class="row picks">
-              <button type="button" class="pick primary-pick" id="pick-footage-video">Add videos</button>
-              <button type="button" class="pick" id="pick-folder">Add a folder</button>
+              <button type="button" class="pick primary-pick" id="pick-footage-video">Upload videos</button>
+              <button type="button" class="pick hidden" id="pick-folder">Add a folder</button>
             </div>
+            <input type="file" id="footage-files" class="hidden" accept="video/*" multiple />
             <ul class="clip-list" id="clip-list"></ul>
             <p class="picked hidden" id="footage-status">No clips yet.</p>
           </div>

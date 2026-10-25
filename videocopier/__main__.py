@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 from videocopier.models import JobSpec, JobState
@@ -52,8 +53,12 @@ def main() -> None:
 
     import uvicorn
 
-    print(f"NorthOps Prophet → http://{args.host}:{args.port}")
-    uvicorn.run("videocopier.server:app", host=args.host, port=args.port, reload=False)
+    host = os.environ.get("HOST") or args.host
+    port = int(os.environ.get("PORT") or args.port)
+    if os.environ.get("PORT"):
+        host = "0.0.0.0"
+    print(f"NorthOps Prophet → http://{host}:{port}")
+    uvicorn.run("videocopier.server:app", host=host, port=port, reload=False)
 
 
 if __name__ == "__main__":

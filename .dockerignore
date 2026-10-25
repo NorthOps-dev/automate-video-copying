@@ -1,0 +1,15 @@
+.venv
+.work
+.models
+.git
+.cursor
+output
+jobs
+tests
+*.mp4
+*.mov
+*.mkv
+*.wav
+__pycache__
+*.pyc
+uv.lock
