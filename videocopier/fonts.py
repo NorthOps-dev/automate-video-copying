@@ -10,9 +10,8 @@ FONTS_DIR = ROOT / "fonts"
 MONTSERRAT = FONTS_DIR / "Montserrat-SemiBold.ttf"
 TIKTOK_SANS = FONTS_DIR / "TikTokSans.ttf"
 AVENIR_NEXT = Path("/System/Library/Fonts/Avenir Next.ttc")
-# Medium in Apple's Avenir Next.ttc — fill is thin; the outline makes Classic.
-# (Demi Bold + thick stroke reads as ExtraBold. Original cards are not that.)
-AVENIR_CLASSIC_INDEX = 5
+# Demi Bold + a thin outline is Classic. Extra tracking made it look airy.
+AVENIR_CLASSIC_INDEX = 2
 
 
 class FontChoice:

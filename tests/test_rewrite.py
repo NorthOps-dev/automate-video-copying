@@ -27,4 +27,4 @@ def test_classic_caption_face_is_not_extrabold():
     style = loaded.getname()[1].lower()
     assert "extra" not in style
     assert STROKE <= 5
-    assert TRACKING >= 2.5
+    assert TRACKING <= 1.5

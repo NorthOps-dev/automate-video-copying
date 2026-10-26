@@ -14,9 +14,12 @@ SAFE_X = 70
 MAX_TEXT_W = WIDTH - SAFE_X * 2
 TOP_MIN = 90
 MAX_BLOCK_H = 560
-# CapCut/TikTok Classic: Semibold, thinner outline, a little tracking.
-STROKE = 5
-TRACKING = 3.2
+# CapCut/TikTok Classic: Semibold, thin outline, tight packing. Burn as
+# vector type — never upscale the TikTok's compressed pixels.
+STROKE = 4
+TRACKING = 0.4
+LINE_HEIGHT = 1.22
+SUPERSAMPLE = 2
 CYAN = (0, 242, 234, 255)
 WHITE = (255, 255, 255, 255)
 BLACK = (0, 0, 0, 255)
@@ -155,17 +158,17 @@ def _load_font(path: Path, size: int = 56, index: int = 0) -> ImageFont.FreeType
     return font
 
 
-def _line_width(font, text: str) -> float:
+def _line_width(font, text: str, tracking: float = TRACKING) -> float:
     if not text:
         return 0.0
-    return sum(font.getlength(ch) for ch in text) + TRACKING * max(len(text) - 1, 0)
+    return sum(font.getlength(ch) for ch in text) + tracking * max(len(text) - 1, 0)
 
 
-def _draw_tracked(draw: ImageDraw.ImageDraw, x: float, y: float, text: str, font, fill) -> None:
+def _draw_tracked(draw: ImageDraw.ImageDraw, x: float, y: float, text: str, font, fill, stroke: int = STROKE, tracking: float = TRACKING) -> None:
     cursor = x
     for i, ch in enumerate(text):
-        draw.text((cursor, y), ch, font=font, fill=fill, stroke_width=STROKE, stroke_fill=BLACK)
-        cursor += font.getlength(ch) + (TRACKING if i < len(text) - 1 else 0)
+        draw.text((cursor, y), ch, font=font, fill=fill, stroke_width=stroke, stroke_fill=BLACK)
+        cursor += font.getlength(ch) + (tracking if i < len(text) - 1 else 0)
 
 
 def _wrap_to_width(text: str, font, max_w: float = MAX_TEXT_W) -> list[str]:
@@ -186,28 +189,35 @@ def _wrap_to_width(text: str, font, max_w: float = MAX_TEXT_W) -> list[str]:
     return lines or [text.strip()]
 
 
-def _fit_block_font(font_choice: FontChoice, text: str, start: int = 50):
+def _fit_block_font(
+    font_choice: FontChoice,
+    text: str,
+    start: int = 56,
+    max_w: float = MAX_TEXT_W,
+    tracking: float = TRACKING,
+    max_block_h: float = MAX_BLOCK_H,
+):
     source = [ln.strip() for ln in text.replace("\r", "").split("\n") if ln.strip()]
-    # Shrink first so the TikTok's own line breaks stay intact.
-    sizes = (start, 48, 44, 40, 36)
+    # Keep the TikTok's own line breaks; pick the largest size that still fits.
+    sizes = list(range(start, 31, -2))
     if source:
         for size in sizes:
             font = _load_font(font_choice.path, size=size, index=font_choice.index)
-            if all(_line_width(font, _classic_text(ln)) <= MAX_TEXT_W for ln in source):
+            if all(_line_width(font, _classic_text(ln), tracking) <= max_w for ln in source):
                 lines = [_classic_text(ln) for ln in source]
-                line_h = int(font.size + 14)
-                if line_h * len(lines) <= MAX_BLOCK_H:
+                line_h = int(round(font.size * LINE_HEIGHT))
+                if line_h * len(lines) <= max_block_h:
                     return font, lines[:8], line_h
     for size in sizes:
         font = _load_font(font_choice.path, size=size, index=font_choice.index)
-        lines = [_classic_text(ln) for ln in _wrap_to_width(text, font) if ln.strip()]
-        line_h = int(font.size + 14)
-        widest = max((_line_width(font, ln) for ln in lines), default=0)
-        if widest <= MAX_TEXT_W and line_h * len(lines) <= MAX_BLOCK_H and len(lines) <= 8:
+        lines = [_classic_text(ln) for ln in _wrap_to_width(text, font, max_w) if ln.strip()]
+        line_h = int(round(font.size * LINE_HEIGHT))
+        widest = max((_line_width(font, ln, tracking) for ln in lines), default=0)
+        if widest <= max_w and line_h * len(lines) <= max_block_h and len(lines) <= 8:
             return font, lines[:8], line_h
-    font = _load_font(font_choice.path, size=36, index=font_choice.index)
-    lines = [_classic_text(ln) for ln in _wrap_to_width(text, font) if ln.strip()]
-    return font, lines[:8], int(font.size + 14)
+    font = _load_font(font_choice.path, size=max(32, start // 2), index=font_choice.index)
+    lines = [_classic_text(ln) for ln in _wrap_to_width(text, font, max_w) if ln.strip()]
+    return font, lines[:8], int(round(font.size * LINE_HEIGHT))
 
 
 def _draw_phrase(draw: ImageDraw.ImageDraw, words: list[str], highlight: int | None, font, y: float | None = None) -> None:
@@ -230,18 +240,36 @@ def _draw_phrase(draw: ImageDraw.ImageDraw, words: list[str], highlight: int | N
             cursor += 1
 
 
-def _draw_block(draw: ImageDraw.ImageDraw, text: str, font_choice: FontChoice, y_ratio: float) -> None:
-    font, lines, line_h = _fit_block_font(font_choice, text)
+def _draw_block(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    font_choice: FontChoice,
+    y_ratio: float,
+    *,
+    width: int = WIDTH,
+    height: int = HEIGHT,
+    scale: int = 1,
+) -> None:
+    tracking = TRACKING * scale
+    max_w = width - SAFE_X * 2 * scale
+    font, lines, line_h = _fit_block_font(
+        font_choice,
+        text,
+        start=56 * scale,
+        max_w=max_w,
+        tracking=tracking,
+        max_block_h=MAX_BLOCK_H * scale,
+    )
     if not lines:
         return
     block_h = line_h * len(lines)
-    # Sit the block where the TikTok put it (OCR y_ratio), not pinned to the top.
-    y = HEIGHT * max(0.06, min(y_ratio, 0.72))
-    y = max(TOP_MIN, min(y, HEIGHT - block_h - 160))
+    y = height * max(0.06, min(y_ratio, 0.72))
+    y = max(TOP_MIN * scale, min(y, height - block_h - 160 * scale))
+    stroke = max(1, STROKE * scale)
     for i, line in enumerate(lines):
-        tw = _line_width(font, line)
-        x = max(SAFE_X, (WIDTH - tw) / 2)
-        _draw_tracked(draw, x, y + i * line_h, line, font, WHITE)
+        tw = _line_width(font, line, tracking)
+        x = max(SAFE_X * scale, (width - tw) / 2)
+        _draw_tracked(draw, x, y + i * line_h, line, font, WHITE, stroke=stroke, tracking=tracking)
 
 
 def render_caption_png(dest: Path, words: list[str], highlight: int | None, font_choice: FontChoice) -> Path:
@@ -256,9 +284,20 @@ def render_caption_png(dest: Path, words: list[str], highlight: int | None, font
 
 def render_block_png(dest: Path, text: str, font_choice: FontChoice, y_ratio: float) -> Path:
     dest.parent.mkdir(parents=True, exist_ok=True)
-    img = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
+    scale = SUPERSAMPLE
+    img = Image.new("RGBA", (WIDTH * scale, HEIGHT * scale), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    _draw_block(draw, text, font_choice, y_ratio)
+    _draw_block(
+        draw,
+        text,
+        font_choice,
+        y_ratio,
+        width=WIDTH * scale,
+        height=HEIGHT * scale,
+        scale=scale,
+    )
+    if scale > 1:
+        img = img.resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
     img.save(dest, "PNG")
     return dest
 
@@ -279,14 +318,7 @@ def render_overlays(
         if line.kind == "overlay" or "\n" in line.text:
             n += 1
             dest = png_dir / f"{n:04d}.png"
-            png = None
-            if reference and Path(reference).exists():
-                from videocopier.lift import lift_card_png
-
-                mid = (line.start + min(line.end, line.start + 4.0)) / 2
-                png = lift_card_png(Path(reference), mid, line.y_ratio, dest)
-            if png is None:
-                png = render_block_png(dest, line.text, font, line.y_ratio)
+            png = render_block_png(dest, line.text, font, line.y_ratio)
             events.append(OverlayEvent(start=line.start, end=max(line.end, line.start + 0.8), png=png))
             continue
         tokens = [w.text for w in line.words] if line.words else line.text.split()
