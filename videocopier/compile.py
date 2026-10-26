@@ -214,7 +214,7 @@ def compile_cut(
     captions = _pick_captions(blueprint, cutlist, work, caption_mode, concat_path)
     font = ensure_caption_font()
     build_ass(captions, work / "captions.ass", font)
-    overlays = render_overlays(captions, work, font)
+    overlays = render_overlays(captions, work, font, reference=Path(blueprint.path) if blueprint.path else None)
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     duration = video_info(concat_path)["duration"]

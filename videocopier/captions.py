@@ -263,7 +263,12 @@ def render_block_png(dest: Path, text: str, font_choice: FontChoice, y_ratio: fl
     return dest
 
 
-def render_overlays(captions: list[CaptionLine], work: Path, font: FontChoice) -> list[OverlayEvent]:
+def render_overlays(
+    captions: list[CaptionLine],
+    work: Path,
+    font: FontChoice,
+    reference: Path | None = None,
+) -> list[OverlayEvent]:
     events: list[OverlayEvent] = []
     png_dir = work / "cap_png"
     png_dir.mkdir(parents=True, exist_ok=True)
@@ -273,7 +278,15 @@ def render_overlays(captions: list[CaptionLine], work: Path, font: FontChoice) -
             continue
         if line.kind == "overlay" or "\n" in line.text:
             n += 1
-            png = render_block_png(png_dir / f"{n:04d}.png", line.text, font, line.y_ratio)
+            dest = png_dir / f"{n:04d}.png"
+            png = None
+            if reference and Path(reference).exists():
+                from videocopier.lift import lift_card_png
+
+                mid = (line.start + min(line.end, line.start + 4.0)) / 2
+                png = lift_card_png(Path(reference), mid, line.y_ratio, dest)
+            if png is None:
+                png = render_block_png(dest, line.text, font, line.y_ratio)
             events.append(OverlayEvent(start=line.start, end=max(line.end, line.start + 0.8), png=png))
             continue
         tokens = [w.text for w in line.words] if line.words else line.text.split()
