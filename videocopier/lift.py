@@ -19,8 +19,9 @@ def lift_card_png(reference: Path, t: float, y_ratio: float, dest: Path) -> Path
         return None
     h, w = frame.shape[:2]
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    top = max(0, int((max(y_ratio, 0.04) - 0.03) * h))
-    bot = min(h, int((y_ratio + 0.34) * h))
+    top = max(0, int((max(y_ratio, 0.04) - 0.02) * h))
+    # Card only — a 0.34 band reaches the original talent's hands.
+    bot = min(h, int((y_ratio + 0.20) * h))
     if bot - top < 40:
         return None
 
@@ -50,8 +51,11 @@ def lift_card_png(reference: Path, t: float, y_ratio: float, dest: Path) -> Path
     center[:, int(w * 0.88) :] = 0
     nlab, labels, stats, _ = cv2.connectedComponentsWithStats(center, connectivity=8)
     letters = np.zeros_like(center)
+    text_floor = int((y_ratio + 0.20) * h)
     for i in range(1, nlab):
-        if stats[i, cv2.CC_STAT_AREA] >= 30:
+        area = int(stats[i, cv2.CC_STAT_AREA])
+        cy = int(stats[i, cv2.CC_STAT_TOP] + stats[i, cv2.CC_STAT_HEIGHT] / 2)
+        if area >= 30 and cy <= text_floor:
             letters[labels == i] = 1
     ys, xs = np.where(letters > 0)
     if ys.size < 80:
