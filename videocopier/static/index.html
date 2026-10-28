@@ -70,16 +70,23 @@
       </section>
 
       <section class="review hidden" id="review">
-        <section class="card">
-          <h2>Approve the words</h2>
-          <p class="hint">OCR is a draft. Rewrite every line for this client, set the times, then burn.</p>
-          <div class="ocr-read hidden" id="ocr-read">
-            <p class="eyebrow">What we read on the TikTok</p>
-            <ol id="ocr-lines"></ol>
+        <section class="card review-card">
+          <h2>Caption timeline</h2>
+          <p class="hint">Every card is a span on the video. Edit the words, drag the bars to set when they appear, then approve all of them at the end. Nothing burns before that.</p>
+          <div class="tl" id="timeline">
+            <div class="tl-ruler" id="tl-ruler"></div>
+            <div class="tl-lanes" id="tl-lanes"></div>
           </div>
-          <div class="caption-editor" id="caption-editor"></div>
-          <button type="button" class="pick" id="add-card">Add line</button>
-          <button type="button" id="approve">Approve and burn</button>
+          <p class="picked" id="tl-selected">Select a card to edit it.</p>
+          <div class="script" id="caption-editor"></div>
+          <div class="review-actions">
+            <button type="button" class="pick" id="add-card">Add card</button>
+            <button type="button" id="approve">Approve all and burn</button>
+          </div>
+          <details class="ocr-read hidden" id="ocr-read">
+            <summary>OCR we ignored</summary>
+            <ol id="ocr-lines"></ol>
+          </details>
         </section>
       </section>
 

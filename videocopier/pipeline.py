@@ -83,6 +83,7 @@ def run_job(job_id: str) -> JobState:
         cutlist_path.write_text(cutlist.model_dump_json(indent=2))
         state.source_captions = source
         state.draft_captions = draft
+        state.duration = float(cutlist.duration)
         state.output_cutlist = str(cutlist_path)
         state.unfilled = cutlist.unfilled
         state.status = "review"

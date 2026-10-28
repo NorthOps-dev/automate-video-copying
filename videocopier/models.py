@@ -121,5 +121,6 @@ class JobState(BaseModel):
     output_xml: str | None = None
     output_cutlist: str | None = None
     unfilled: list[str] = Field(default_factory=list)
+    duration: float = 0.0
     source_captions: list[CaptionLine] = Field(default_factory=list)
     draft_captions: list[CaptionLine] = Field(default_factory=list)

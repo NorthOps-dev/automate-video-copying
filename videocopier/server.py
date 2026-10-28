@@ -317,7 +317,7 @@ def styles_css():
 
 
 @app.get("/api/jobs/latest")
-def latest_job():
+def latest_job(status: str | None = None):
     root = Path(__file__).resolve().parent.parent / ".work" / "jobs"
     newest = None
     newest_mtime = -1.0
@@ -327,7 +327,10 @@ def latest_job():
                 state = load_state(path.parent.name)
             except Exception:
                 continue
-            if state.status != "done" or not state.output_mp4:
+            if status:
+                if state.status != status:
+                    continue
+            elif state.status != "done" or not state.output_mp4:
                 continue
             mtime = path.stat().st_mtime
             if mtime > newest_mtime:
