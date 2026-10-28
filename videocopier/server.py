@@ -6,6 +6,8 @@ import threading
 import uuid
 from pathlib import Path
 
+from urllib.parse import quote
+
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -16,12 +18,13 @@ from videocopier.board import BoardError, board_status, download_source, get_slo
 from videocopier.knowledge import load_brief, save_brief
 from videocopier.models import JobSpec, JobState
 from videocopier.pick import PickCancelled, folder_info, pick_file, pick_files, pick_folder
-from videocopier.pipeline import job_dir, load_state, save_state
+from videocopier.pipeline import ROOT, job_dir, load_state, save_state
 
 STATIC = Path(__file__).resolve().parent / "static"
 os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
 
 HOSTED = bool(os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("RAILWAY_PUBLIC_DOMAIN"))
+NO_STORE = {"Cache-Control": "no-store"}
 
 app = FastAPI(title="NorthOps Prophet", version="0.1.0")
 app.add_middleware(AuthMiddleware)
@@ -126,6 +129,78 @@ def api_pick_files():
     }
 
 
+INBOX = ROOT / ".work" / "inbox"
+
+
+def _inbox_file(path: str) -> Path:
+    dest = Path(path).expanduser().resolve()
+    root = INBOX.resolve()
+    if root not in dest.parents:
+        raise HTTPException(400, "Unknown clip")
+    if not dest.is_file():
+        raise HTTPException(404, "Clip gone")
+    return dest
+
+
+@app.post("/api/clips/inspect")
+async def api_inspect_clips(request: Request):
+    form = await request.form()
+    batch = uuid.uuid4().hex[:10]
+    dest_dir = INBOX / batch
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    from videocopier.media import inspect_clip, list_videos
+
+    clips: list[dict] = []
+    uploads = form.getlist("footage")
+    for item in uploads:
+        filename = getattr(item, "filename", None)
+        if filename:
+            dest = dest_dir / _safe_upload_name(filename)
+            dest.write_bytes(await item.read())
+        else:
+            src = Path(str(item)).expanduser()
+            if not src.is_file():
+                continue
+            dest = dest_dir / _safe_upload_name(src.name)
+            dest.write_bytes(src.read_bytes())
+        thumb = dest.with_suffix(".jpg")
+        meta = inspect_clip(dest, thumb)
+        clips.append(
+            {
+                "id": f"{batch}/{dest.name}",
+                "name": dest.name,
+                "path": str(dest),
+                "thumb": f"/api/clips/thumb?path={quote(str(dest))}",
+                **meta,
+            }
+        )
+    if not clips:
+        for path in list_videos(dest_dir):
+            thumb = path.with_suffix(".jpg")
+            meta = inspect_clip(path, thumb)
+            clips.append(
+                {
+                    "id": f"{batch}/{path.name}",
+                    "name": path.name,
+                    "path": str(path),
+                    "thumb": f"/api/clips/thumb?path={quote(str(path))}",
+                    **meta,
+                }
+            )
+    if not clips:
+        raise HTTPException(400, "Upload at least one video.")
+    return {"ok": True, "batch": batch, "clips": clips}
+
+
+@app.get("/api/clips/thumb")
+def api_clip_thumb(path: str = Query(...)):
+    dest = _inbox_file(path)
+    thumb = dest.with_suffix(".jpg")
+    if not thumb.exists():
+        raise HTTPException(404, "No thumbnail")
+    return FileResponse(thumb, media_type="image/jpeg", headers=NO_STORE)
+
+
 @app.get("/api/board/status")
 def api_board_status():
     return board_status()
@@ -226,9 +301,6 @@ def api_pick_file(kind: str = Query(default="video")):
     return {"cancelled": False, "path": str(path), "name": path.name}
 
 
-NO_STORE = {"Cache-Control": "no-store"}
-
-
 @app.get("/")
 def home():
     return FileResponse(STATIC / "index.html", headers=NO_STORE)
@@ -237,6 +309,11 @@ def home():
 @app.get("/app.js")
 def app_js():
     return FileResponse(STATIC / "app.js", media_type="application/javascript", headers=NO_STORE)
+
+
+@app.get("/styles.css")
+def styles_css():
+    return FileResponse(STATIC / "styles.css", media_type="text/css", headers=NO_STORE)
 
 
 @app.get("/api/jobs/latest")
@@ -330,7 +407,10 @@ async def create_job(request: Request):
             if not filename:
                 path = str(item).strip()
                 if path:
-                    extra.append(path)
+                    src = _inbox_file(path)
+                    dest = footage_dir / _safe_upload_name(src.name)
+                    dest.write_bytes(src.read_bytes())
+                    extra.append(str(dest))
                 continue
             dest = footage_dir / _safe_upload_name(filename)
             dest.write_bytes(await item.read())
@@ -406,6 +486,34 @@ async def create_job_upload(
     save_state(state)
     _start_job(job_id)
     return state
+
+
+@app.post("/api/jobs/{job_id}/approve")
+async def approve_job(job_id: str, request: Request):
+    try:
+        state = load_state(job_id)
+    except FileNotFoundError:
+        raise HTTPException(404, "Unknown job")
+    if state.status not in {"review", "error"}:
+        raise HTTPException(400, "This remake is not waiting for approval.")
+    body = await request.json()
+    captions = body.get("captions") if isinstance(body, dict) else None
+    if not isinstance(captions, list) or not any(str((c or {}).get("text") or "").strip() for c in captions if isinstance(c, dict)):
+        raise HTTPException(400, "Approve at least one caption line.")
+    state.status = "queued"
+    state.step = "queued"
+    state.error = None
+    save_state(state)
+
+    def _run() -> None:
+        from videocopier.pipeline import burn_job
+
+        burn_job(job_id, captions)
+
+    if _on_vercel():
+        raise HTTPException(501, "Vercel cannot remake videos.")
+    threading.Thread(target=_run, daemon=True).start()
+    return {"ok": True, "id": job_id}
 
 
 @app.get("/api/jobs/{job_id}")

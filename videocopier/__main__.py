@@ -36,6 +36,10 @@ def main() -> None:
         job_id = "cli"
         save_state(JobState(id=job_id, spec=spec))
         state = run_job(job_id)
+        if state.status == "review":
+            from videocopier.pipeline import burn_job
+
+            state = burn_job(job_id)
         if state.status != "done" or not state.output_mp4:
             raise SystemExit(state.error or "Job failed")
         if args.out:
@@ -58,7 +62,8 @@ def main() -> None:
     if os.environ.get("PORT"):
         host = "0.0.0.0"
     print(f"NorthOps Prophet → http://{host}:{port}")
-    uvicorn.run("videocopier.server:app", host=host, port=port, reload=False)
+    reload = not bool(os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("PORT"))
+    uvicorn.run("videocopier.server:app", host=host, port=port, reload=reload)
 
 
 if __name__ == "__main__":

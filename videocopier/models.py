@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 CaptionMode = Literal["client", "auto", "reference", "footage"]
 SlotStatus = Literal["filled", "unfilled"]
-JobStatus = Literal["queued", "running", "done", "error"]
+JobStatus = Literal["queued", "running", "review", "done", "error"]
 
 
 class Word(BaseModel):
@@ -23,6 +23,11 @@ class CaptionLine(BaseModel):
     words: list[Word] = Field(default_factory=list)
     kind: str = "speech"
     y_ratio: float = 0.22
+    # Copied from the working TikTok: classic = white fill + black outline;
+    # box = dark type on a white rounded pill.
+    face: str = "classic"
+    width_ratio: float = 0.0
+    size_ratio: float = 0.0
 
 
 class Shot(BaseModel):
@@ -116,3 +121,5 @@ class JobState(BaseModel):
     output_xml: str | None = None
     output_cutlist: str | None = None
     unfilled: list[str] = Field(default_factory=list)
+    source_captions: list[CaptionLine] = Field(default_factory=list)
+    draft_captions: list[CaptionLine] = Field(default_factory=list)

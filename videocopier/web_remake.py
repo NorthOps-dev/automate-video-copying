@@ -2,21 +2,55 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from videocopier.adapt import tiktok_cards
-from videocopier.media import list_videos, video_info
+from videocopier.media import (
+    detect_cuts,
+    frame_quality,
+    list_videos,
+    read_frame_bgr,
+    shot_bounds,
+    video_info,
+)
 from videocopier.models import Blueprint, CaptionLine, CutList, Shot, Slot
-from videocopier.ocr import ocr_captions
-from videocopier.rewrite import coalesce_cards, remake_for_client
+from videocopier.timeline import caption_plan, caption_timeline
 
 
 def _captions(reference: Path, duration: float, slot: dict, brief: dict, progress=lambda m: None) -> list[CaptionLine]:
-    cards = coalesce_cards(tiktok_cards(ocr_captions(reference, duration, progress=progress)))
-    if not cards:
-        return []
-    return remake_for_client(cards, slot or {}, brief or {}) or cards
+    return caption_timeline(reference, duration, slot or {}, brief or {}, progress=progress)
 
 
-def _cutlist(videos: list[Path], want: float) -> CutList:
+def _clip_score(path: Path) -> float:
+    """People and rooms first. Lamp / plant / flat-art close-ups last."""
+    try:
+        dur = float(video_info(path)["duration"])
+        t = min(1.0, max(0.35, dur * 0.2))
+        frame = read_frame_bgr(path, t, width=180)
+    except Exception:
+        return 0.0
+    quality, luma, sat, face, _face_x = frame_quality(frame)
+    gray = frame.mean(axis=2) if frame.ndim == 3 else frame
+    dark = float((gray < 35).mean())
+    mid = float(((gray > 40) & (gray < 200)).mean())
+    var = float(gray.var()) / (255.0 ** 2)
+    score = luma * 2.0 + var * 40.0 + mid * 0.5 + quality * 0.3
+    if face:
+        score += 2.0
+    if dark > 0.45:
+        score -= 2.0
+    if var < 0.012 and luma < 0.16:
+        score -= 1.8
+    if sat > 0.92 and var < 0.015:
+        score -= 1.0
+    return score
+
+
+def _rank_videos(videos: list[Path]) -> list[Path]:
+    """Keep every clip the user picked. Prefer people/rooms, then stable takes."""
+    if len(videos) <= 1:
+        return list(videos)
+    return [p for p, _ in sorted(((p, _clip_score(p)) for p in videos), key=lambda item: -item[1])]
+
+
+def _cutlist_linear(videos: list[Path], want: float) -> CutList:
     slots: list[Slot] = []
     t = 0.0
     for i, path in enumerate(videos):
@@ -47,25 +81,59 @@ def _cutlist(videos: list[Path], want: float) -> CutList:
     return CutList(duration=round(t, 3), slots=slots)
 
 
+def _cutlist(videos: list[Path], want: float, reference: Path | None = None) -> CutList:
+    if reference and reference.exists() and len(videos) > 1 and want > 6:
+        try:
+            cuts = detect_cuts(reference, reference.parent)
+            bounds = shot_bounds(cuts, want, min_len=0.7)
+        except Exception:
+            bounds = []
+        if len(bounds) >= 3:
+            ranked = _rank_videos(videos)
+            slots: list[Slot] = []
+            for i, (a, b) in enumerate(bounds):
+                need = max(b - a, 0.2)
+                path = ranked[i % len(ranked)]
+                dur = float(video_info(path)["duration"])
+                take = min(need, dur)
+                offset = 0.0
+                if dur > take + 0.3:
+                    offset = min((i // len(videos)) * take, dur - take)
+                slots.append(
+                    Slot(
+                        shot_index=i,
+                        start=round(a, 3),
+                        end=round(a + take, 3),
+                        duration=round(take, 3),
+                        role="hook" if i == 0 else "broll",
+                        status="filled",
+                        score=1.0,
+                        reason=f"{path.name} {offset:.2f}–{offset + take:.2f}s",
+                        source_path=str(path),
+                        source_in=round(offset, 3),
+                        source_out=round(offset + take, 3),
+                    )
+                )
+            end = slots[-1].end if slots else want
+            return CutList(duration=round(end, 3), slots=slots)
+    return _cutlist_linear(videos, want)
+
+
 def remake_from_uploads(
     reference: Path,
     footage_dir: Path,
     slot: dict,
     brief: dict,
     progress=lambda m: None,
-) -> tuple[Blueprint, CutList]:
-    videos = list_videos(footage_dir)
+) -> tuple[Blueprint, CutList, list[CaptionLine], list[CaptionLine]]:
+    videos = _rank_videos(list_videos(footage_dir))
     if not videos:
         raise FileNotFoundError("Upload at least one video.")
     info = video_info(reference)
     duration = float(info["duration"])
     progress("Reading the words on the TikTok…")
-    captions = _captions(reference, duration, slot, brief, progress=progress)
-    if captions:
-        for card in captions:
-            preview = card.text.replace("\n", " / ")
-            progress(f"  {card.start:.1f}s  {preview[:80]}")
-    cutlist = _cutlist(videos, duration)
+    source, captions = caption_plan(reference, duration, slot, brief, progress=progress)
+    cutlist = _cutlist(videos, duration, reference=reference)
     if captions:
         captions = [
             c.model_copy(update={"end": min(c.end, cutlist.duration)})
@@ -89,4 +157,4 @@ def remake_from_uploads(
             )
         ],
     )
-    return blueprint, cutlist
+    return blueprint, cutlist, source, captions

@@ -8,7 +8,7 @@ from videocopier.rewrite import remake_for_client
 
 
 def _line_text(item: dict) -> str:
-    return str(item.get("brand") or item.get("original") or item.get("text") or "").strip()
+    return str(item.get("brand") or item.get("text") or "").strip()
 
 
 def _letters(text: str) -> str:
@@ -119,7 +119,7 @@ def captions_from_design(
         return [CaptionLine(text=text, start=0.1, end=max(duration, 2.0), kind="overlay", y_ratio=0.14)]
 
     if fallback:
-        return fallback
+        return remake_for_client(fallback, slot, brief)
     blurb = brief_blurb(brief)
     if blurb:
         return [CaptionLine(text=blurb, start=0.1, end=max(duration, 2.0), kind="overlay", y_ratio=0.14)]

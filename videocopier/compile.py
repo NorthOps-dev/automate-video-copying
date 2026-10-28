@@ -6,6 +6,7 @@ from videocopier.captions import build_ass, render_overlays, words_to_lines
 from videocopier.fonts import ensure_caption_font
 from videocopier.media import concat_file_line, ffmpeg_bin, has_audio, run, video_info
 from videocopier.models import Blueprint, CaptionLine, CutList, Slot
+from videocopier.rewrite import drop_unburnable
 from videocopier.transcribe import transcribe
 
 WIDTH = 1080
@@ -30,7 +31,8 @@ def _layout_filter(path: Path, face_x: float) -> str:
     sh = max(int(round(oh * scale)), HEIGHT)
     cx = int(round(sw * face_x - WIDTH / 2))
     cx = max(0, min(cx, sw - WIDTH))
-    cy = int(round(sh * 0.42 - HEIGHT / 2))
+    # Center the 9:16 window. A 0.42 top bias turned hanging lights into the hook.
+    cy = int(round((sh - HEIGHT) / 2))
     cy = max(0, min(cy, sh - HEIGHT))
     return f"scale={sw}:{sh},crop={WIDTH}:{HEIGHT}:{cx}:{cy},fps={FPS},setsar=1,format=yuv420p"
 
@@ -147,6 +149,49 @@ def _render_slate(slot: Slot, dest: Path) -> None:
     )
 
 
+def _dodge_faces(captions: list[CaptionLine], video: Path) -> list[CaptionLine]:
+    """Park alert cards at the top. Don't copy a restaurant's mid-frame y onto a close-up face."""
+    if not captions:
+        return captions
+    boxes = [c for c in captions if c.face == "box"]
+    split: list[CaptionLine] = []
+    for card in captions:
+        if card.face == "box":
+            split.append(card)
+            continue
+        overlap = [b for b in boxes if b.start < card.end - 0.05 and b.end > card.start + 0.05]
+        hook_end = max((b.end for b in overlap), default=0.0)
+        if overlap and hook_end < card.end - 0.7 and hook_end > card.start + 0.4:
+            split.append(card.model_copy(update={"end": round(hook_end, 3)}))
+            split.append(card.model_copy(update={"start": round(hook_end, 3), "y_ratio": 0.13, "face": "classic"}))
+        else:
+            split.append(card)
+    placed: list[CaptionLine] = []
+    for card in split:
+        y = card.y_ratio
+        if card.face == "box":
+            y = 0.10
+        else:
+            overlap = [b for b in boxes if b.start < card.end - 0.05 and b.end > card.start + 0.05]
+            if overlap:
+                hook_h = 0.052 * (overlap[0].text.count("\n") + 1) + 0.048
+                y = 0.10 + hook_h
+        placed.append(card.model_copy(update={"y_ratio": round(float(y), 3)}))
+    ordered = sorted(placed, key=lambda c: (c.start, c.y_ratio))
+    for i, card in enumerate(ordered):
+        if card.face == "box":
+            continue
+        for prev in ordered[:i]:
+            if prev.end <= card.start + 0.08:
+                continue
+            prev_h = 0.052 * (prev.text.count("\n") + 1) + (0.05 if prev.face == "box" else 0.02)
+            floor = prev.y_ratio + prev_h
+            if card.y_ratio < floor:
+                ordered[i] = card.model_copy(update={"y_ratio": round(min(floor, 0.58), 3)})
+                card = ordered[i]
+    return ordered
+
+
 def _pick_captions(
     blueprint: Blueprint,
     cutlist: CutList,
@@ -174,20 +219,26 @@ def compile_cut(
     caption_mode: str = "client",
     music: Path | None = None,
     progress=lambda m: None,
+    brief: dict | None = None,
+    slot: dict | None = None,
+    approved: bool = False,
 ) -> Path:
     slots_dir = work / "slots"
     slots_dir.mkdir(parents=True, exist_ok=True)
     slot_files: list[Path] = []
-    for slot in cutlist.slots:
-        out = slots_dir / f"{slot.shot_index:03d}.mp4"
-        progress(f"Rendering slot {slot.shot_index + 1}/{len(cutlist.slots)} ({slot.status})")
-        if slot.status == "filled" and out.exists() and out.stat().st_size > 1000:
+    for item in cutlist.slots:
+        out = slots_dir / f"{item.shot_index:03d}.mp4"
+        progress(f"Rendering slot {item.shot_index + 1}/{len(cutlist.slots)} ({item.status})")
+        sig = out.with_suffix(".sig")
+        want = f"{item.source_path}|{item.source_in}|{item.source_out}|{item.duration:.3f}|{item.face_x:.3f}"
+        if item.status == "filled" and out.exists() and out.stat().st_size > 1000 and sig.exists() and sig.read_text() == want:
             slot_files.append(out)
             continue
-        if slot.status == "filled":
-            _render_filled(slot, out)
+        if item.status == "filled":
+            _render_filled(item, out)
+            sig.write_text(want)
         else:
-            _render_slate(slot, out)
+            _render_slate(item, out)
         slot_files.append(out)
 
     concat_list = work / "concat.txt"
@@ -212,6 +263,11 @@ def compile_cut(
 
     progress("Burning client captions on the TikTok cards…")
     captions = _pick_captions(blueprint, cutlist, work, caption_mode, concat_path)
+    if approved:
+        captions = [c.model_copy(update={"text": c.text.strip()}) for c in captions if (c.text or "").strip()]
+    else:
+        captions = drop_unburnable(captions, brief or {}, slot or {})
+    captions = _dodge_faces(captions, concat_path)
     font = ensure_caption_font()
     build_ass(captions, work / "captions.ass", font)
     overlays = render_overlays(captions, work, font, reference=Path(blueprint.path) if blueprint.path else None)

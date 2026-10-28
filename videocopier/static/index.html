@@ -25,120 +25,62 @@
 
     <main>
       <section class="hero">
-        <p class="eyebrow">How it works</p>
-        <h1>Remake an approved format for the client.</h1>
-        <p class="lede">
-          Prophet reads the words on the approved TikTok, swaps drinks and venue for this client, and cuts their footage to that edit.
-        </p>
+        <h1>Remake a format.</h1>
+        <p class="lede">Pick the client, pick the video to copy, pick the stable clips. We rewrite the words, you approve the timeline, then we burn.</p>
       </section>
 
       <form id="form" class="board">
-        <section class="card step">
-          <div class="step-num">1</div>
-          <div class="step-body">
-            <h2>Who is this for?</h2>
-            <p class="hint">Client name from the Board. Fill the brief so every remake talks like them, not like the original creator.</p>
-            <label for="client">Client</label>
-            <select id="client">
-              <option value="">Loading clients…</option>
-            </select>
-            <div id="brief-box" class="brief hidden">
-              <label>One-liner</label>
-              <input type="text" id="brief-one" placeholder="What they are, in one line" />
-              <label>Location</label>
-              <input type="text" id="brief-loc" placeholder="City / street" />
-              <label>What they sell / do</label>
-              <textarea id="brief-what" rows="3" placeholder="Products, hours, what a regular would say"></textarea>
-              <label>Voice</label>
-              <textarea id="brief-voice" rows="2" placeholder="How they talk on camera"></textarea>
-              <label>Call to action</label>
-              <input type="text" id="brief-cta" placeholder="Come through…" />
-              <label>Never say</label>
-              <input type="text" id="brief-avoid" placeholder="Phrases or vibes to kill" />
-              <div class="row brief-actions">
-                <button type="button" class="pick" id="save-brief">Save brief</button>
-                <p class="picked hidden" id="brief-saved"></p>
-              </div>
-            </div>
+        <section class="card">
+          <h2>Client</h2>
+          <select id="client">
+            <option value="">Loading clients…</option>
+          </select>
+        </section>
+
+        <section class="card">
+          <h2>Format</h2>
+          <p class="hint">The approved TikTok whose layout we copy. Words on it do not get burned.</p>
+          <input type="search" id="board-search" placeholder="Search formats…" />
+          <div class="format-grid" id="board-list"></div>
+          <p class="picked" id="board-status">Pick a client first.</p>
+          <div id="format-preview" class="format-preview hidden">
+            <video id="original-player" controls playsinline></video>
+            <p class="hint" id="original-status"></p>
           </div>
         </section>
 
-        <section class="card step">
-          <div class="step-num">2</div>
-          <div class="step-body">
-            <h2>The approved format</h2>
-            <p class="hint">Pick the Board design. Watch the original — those on-screen words are what gets remade.</p>
-            <div class="tabs" role="tablist">
-              <button type="button" class="tab on" id="tab-board" data-pane="pane-board">From the Board</button>
-              <button type="button" class="tab" id="tab-file" data-pane="pane-file">File or link</button>
-            </div>
-
-            <div id="pane-board" class="pane">
-              <p class="picked" id="board-status">Pick a client first.</p>
-              <input type="search" id="board-search" placeholder="Search this client’s formats…" />
-              <div class="board-list" id="board-list"></div>
-              <div id="format-preview" class="format-preview hidden">
-                <div class="watch-grid">
-                  <div>
-                    <p class="eyebrow">Watch the original</p>
-                    <video id="original-player" controls playsinline></video>
-                    <p class="hint" id="original-status">Loading the approved video…</p>
-                  </div>
-                  <div>
-                    <p class="eyebrow">Words on the TikTok</p>
-                    <p id="format-hook"></p>
-                    <ol id="format-lines"></ol>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div id="pane-file" class="pane hidden">
-              <div class="row">
-                <button type="button" class="pick primary-pick" id="pick-ref">Upload format video</button>
-              </div>
-              <input type="text" id="ref-url" placeholder="Or paste a TikTok / YouTube / Drive link" />
-              <input type="file" id="ref-file" class="hidden" accept="video/*" />
-            </div>
+        <section class="card">
+          <h2>Clips</h2>
+          <p class="hint">Add multiple videos. We’ll mark the stable takes and skip anything that already has captions burned in.</p>
+          <div class="row picks">
+            <button type="button" class="pick primary-pick" id="pick-footage-video">Add videos</button>
           </div>
+          <input type="file" id="footage-files" class="hidden" accept="video/*" multiple />
+          <p class="hint" id="clip-status">No clips yet.</p>
+          <div class="clip-grid" id="clip-grid"></div>
         </section>
 
-        <section class="card step">
-          <div class="step-num">3</div>
-          <div class="step-body">
-            <h2>The client’s footage</h2>
-            <p class="hint">Upload the takes from anyone’s computer — talking heads, product, room.</p>
-            <div class="row picks">
-              <button type="button" class="pick primary-pick" id="pick-footage-video">Upload videos</button>
-              <button type="button" class="pick hidden" id="pick-folder">Add a folder</button>
-            </div>
-            <input type="file" id="footage-files" class="hidden" accept="video/*" multiple />
-            <ul class="clip-list" id="clip-list"></ul>
-            <p class="picked hidden" id="footage-status">No clips yet.</p>
-          </div>
-        </section>
-
-        <section class="card step">
-          <div class="step-num">4</div>
-          <div class="step-body">
-            <h2>Remake it</h2>
-            <p class="hint">Same words and timing as the TikTok. Drinks, city, and venue swapped for this client.</p>
-            <label>Captions</label>
-            <select id="captions">
-              <option value="client">Use the words on the TikTok</option>
-              <option value="footage">Only what is said in these clips</option>
-            </select>
-            <label class="music-label">Your music (optional)</label>
-            <input type="text" id="music" placeholder="Leave blank unless you have a licensed track" />
-            <button type="submit" id="build">Remake for the client</button>
-          </div>
-        </section>
+        <button type="submit" id="build">Read words</button>
       </form>
 
       <section class="progress hidden" id="progress">
-        <p class="eyebrow">Remaking</p>
+        <p class="eyebrow">Working</p>
         <div class="bar"><span id="bar"></span></div>
         <ol id="log"></ol>
+      </section>
+
+      <section class="review hidden" id="review">
+        <section class="card">
+          <h2>Approve the words</h2>
+          <p class="hint">OCR is a draft. Rewrite every line for this client, set the times, then burn.</p>
+          <div class="ocr-read hidden" id="ocr-read">
+            <p class="eyebrow">What we read on the TikTok</p>
+            <ol id="ocr-lines"></ol>
+          </div>
+          <div class="caption-editor" id="caption-editor"></div>
+          <button type="button" class="pick" id="add-card">Add line</button>
+          <button type="button" id="approve">Approve and burn</button>
+        </section>
       </section>
 
       <section class="result hidden" id="result">

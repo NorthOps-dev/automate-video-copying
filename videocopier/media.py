@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -311,3 +312,60 @@ def concat_file_line(path: Path) -> str:
 def filter_path(path: Path) -> str:
     """Escape a filesystem path for an FFmpeg filter argument."""
     return path.resolve().as_posix().replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+
+
+_BURNED = re.compile(
+    r"sunnyvale|valley\s*goat|vblley|new in |must-try|restaurant alert|"
+    r"definitely recommend|visit this place|stephanie|james beard",
+    re.I,
+)
+
+
+def clip_has_burned_captions(path: Path, duration: float) -> bool:
+    """True if this file already has a TikTok overlay — don't use it as raw footage."""
+    try:
+        from videocopier.ocr import _engine
+    except Exception:
+        return False
+    engine = _engine()
+    if engine is None:
+        return False
+    times = [0.45, min(max(duration * 0.35, 0.8), max(duration - 0.2, 0.5))]
+    for t in times:
+        try:
+            frame = read_frame_bgr(path, t, width=480)
+            result, _elapse = engine(frame)
+        except Exception:
+            continue
+        blob = " ".join(str(item[1]) for item in (result or []) if item and item[2] >= 0.5)
+        if _BURNED.search(blob):
+            return True
+        words = re.findall(r"[A-Za-z]{4,}", blob)
+        if len(words) >= 8:
+            return True
+    return False
+
+
+def inspect_clip(path: Path, thumb: Path) -> dict:
+    info = video_info(path)
+    duration = float(info["duration"])
+    energy, motion = motion_stats(path, 0.15, min(duration, 2.8))
+    stable = motion in {"static", "gentle"}
+    t = min(max(duration * 0.22, 0.35), max(duration - 0.15, 0.2))
+    try:
+        extract_frame(path, t, thumb, width=360)
+    except Exception:
+        pass
+    captioned = False
+    try:
+        captioned = clip_has_burned_captions(path, duration)
+    except Exception:
+        captioned = False
+    return {
+        "duration": round(duration, 2),
+        "energy": round(energy, 3),
+        "motion": motion,
+        "stable": stable,
+        "captioned": captioned,
+        "selected": bool(stable and not captioned),
+    }

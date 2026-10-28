@@ -5,8 +5,12 @@ const result = document.getElementById("result");
 const missing = document.getElementById("missing");
 const buildBtn = document.getElementById("build");
 const boardPill = document.getElementById("board-pill");
-const clipList = document.getElementById("clip-list");
-const footageStatus = document.getElementById("footage-status");
+const clipGrid = document.getElementById("clip-grid");
+const clipStatus = document.getElementById("clip-status");
+
+const review = document.getElementById("review");
+const captionEditor = document.getElementById("caption-editor");
+const approveBtn = document.getElementById("approve");
 
 const state = {
   clips: [],
@@ -14,9 +18,8 @@ const state = {
   clients: [],
   boardId: "",
   clientId: "",
-  brief: null,
-  refMode: "board",
-  refFile: null,
+  jobId: "",
+  draft: [],
 };
 
 async function api(url, opts) {
@@ -28,100 +31,79 @@ async function api(url, opts) {
   return res;
 }
 
-function setTab(paneId) {
-  state.refMode = paneId === "pane-board" ? "board" : "file";
-  document.querySelectorAll(".tab").forEach((tab) => {
-    tab.classList.toggle("on", tab.dataset.pane === paneId);
-  });
-  document.getElementById("pane-board").classList.toggle("hidden", paneId !== "pane-board");
-  document.getElementById("pane-file").classList.toggle("hidden", paneId !== "pane-file");
+function clientName() {
+  return document.getElementById("client").selectedOptions[0]?.text || "the client";
 }
 
-document.querySelectorAll(".tab").forEach((tab) => {
-  tab.addEventListener("click", () => setTab(tab.dataset.pane));
-});
-
-async function nativePick(url, extra = "") {
-  const res = await api(url + extra, { method: "POST" });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.detail || "Picker failed");
-  return data;
+function selectedClips() {
+  return state.clips.filter((c) => c.selected && c.path);
 }
 
 function renderClips() {
-  clipList.innerHTML = state.clips
-    .map(
-      (clip, i) =>
-        `<li><span>${clip.name}</span><button type="button" data-i="${i}">Remove</button></li>`
-    )
+  const n = selectedClips().length;
+  clipStatus.textContent = state.clips.length
+    ? `${n} selected · tap a clip to include or skip`
+    : "No clips yet.";
+  clipGrid.innerHTML = state.clips
+    .map((clip) => {
+      let badge = "Shaky";
+      let kind = "warn";
+      if (clip.captioned) {
+        badge = "Has captions";
+        kind = "warn";
+      } else if (clip.stable) {
+        badge = "Stable";
+        kind = "ok";
+      }
+      const on = clip.selected ? "on" : "";
+      return `<button type="button" class="clip-card ${on}" data-id="${clip.id}">
+        <img src="${clip.thumb}" alt="" />
+        <span class="badge ${kind}">${badge}</span>
+        <span class="name">${clip.name}</span>
+        <span class="meta">${clip.duration}s · ${clip.motion}</span>
+      </button>`;
+    })
     .join("");
-  footageStatus.classList.toggle("hidden", state.clips.length > 0);
-  footageStatus.textContent = state.clips.length ? "" : "No clips yet.";
 }
 
-clipList.addEventListener("click", (e) => {
-  const btn = e.target.closest("button[data-i]");
-  if (!btn) return;
-  state.clips.splice(Number(btn.dataset.i), 1);
+clipGrid.addEventListener("click", (e) => {
+  const card = e.target.closest(".clip-card");
+  if (!card) return;
+  const clip = state.clips.find((c) => c.id === card.dataset.id);
+  if (!clip) return;
+  clip.selected = !clip.selected;
   renderClips();
-  persistClips();
-});
-
-function persistClips() {
-  /* File uploads cannot be restored from sessionStorage */
-}
-
-function addClips(paths, names) {
-  paths.forEach((path, i) => {
-    if (state.clips.some((c) => c.path === path)) return;
-    state.clips.push({ path, name: names[i] || path.split("/").pop() });
-  });
-  renderClips();
-}
-
-document.getElementById("pick-folder").addEventListener("click", async () => {
-  const btn = document.getElementById("pick-folder");
-  btn.disabled = true;
-  btn.textContent = "Waiting for Finder…";
-  try {
-    const data = await nativePick("/api/pick/folder");
-    if (data.cancelled) return;
-    addClips([data.path], [`${data.videos} videos in folder`]);
-  } catch (err) {
-    alert(err.message || err);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = "Add a folder";
-  }
 });
 
 document.getElementById("pick-footage-video").addEventListener("click", () => {
   document.getElementById("footage-files").click();
 });
 
-document.getElementById("footage-files").addEventListener("change", (e) => {
+document.getElementById("footage-files").addEventListener("change", async (e) => {
   const files = [...(e.target.files || [])];
-  files.forEach((file) => {
-    if (state.clips.some((c) => c.name === file.name && c.file && c.file.size === file.size)) return;
-    state.clips.push({ file, name: file.name });
-  });
   e.target.value = "";
-  renderClips();
-});
-
-document.getElementById("pick-ref").addEventListener("click", () => {
-  document.getElementById("ref-file").click();
-});
-
-document.getElementById("ref-file").addEventListener("change", (e) => {
-  const file = e.target.files && e.target.files[0];
-  if (!file) return;
-  state.refFile = file;
-  state.boardId = "";
-  document.getElementById("ref-url").value = "";
-  document.getElementById("format-preview").classList.remove("hidden");
-  document.getElementById("format-hook").textContent = file.name;
-  playOriginal(URL.createObjectURL(file), "Play the original, then remake it.");
+  if (!files.length) return;
+  const btn = document.getElementById("pick-footage-video");
+  btn.disabled = true;
+  btn.textContent = "Reading clips…";
+  clipStatus.textContent = "Checking which takes are stable…";
+  try {
+    const body = new FormData();
+    files.forEach((file) => body.append("footage", file, file.name));
+    const res = await api("/api/clips/inspect", { method: "POST", body });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Could not read those clips");
+    (data.clips || []).forEach((clip) => {
+      if (state.clips.some((c) => c.name === clip.name && c.duration === clip.duration)) return;
+      state.clips.push(clip);
+    });
+    renderClips();
+  } catch (err) {
+    clipStatus.textContent = err.message || "Could not read those clips";
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Add videos";
+  }
 });
 
 function hidePreview() {
@@ -137,7 +119,7 @@ function playOriginal(src, status) {
   const note = document.getElementById("original-status");
   orig.src = src;
   orig.load();
-  note.textContent = status || "Play the original, then remake it.";
+  note.textContent = status || `Layout only. Captions will be rewritten for ${clientName()}.`;
 }
 
 function renderBoard() {
@@ -161,17 +143,16 @@ function renderBoard() {
     }
     return true;
   });
-  statusEl.textContent = `${rows.length} approved format${rows.length === 1 ? "" : "s"} for this client`;
+  statusEl.textContent = `${rows.length} format${rows.length === 1 ? "" : "s"}`;
   list.innerHTML = rows
     .slice(0, 80)
     .map((slot) => {
       const thumb = slot.thumb
         ? `<img src="/api/board/thumb?src=${encodeURIComponent(slot.thumb)}" alt="" />`
         : `<img alt="" />`;
-      const script = slot.hasScript ? "Has remake script" : "Needs script";
       return `<button type="button" class="board-item ${slot.id === state.boardId ? "on" : ""}" data-id="${slot.id}">
         ${thumb}
-        <span><strong>${slot.hook || "Untitled"}</strong><span class="meta">#${slot.slotNumber || "?"} · ${slot.status} · ${script}</span></span>
+        <span><strong>${slot.hook || "Untitled"}</strong><span class="meta">#${slot.slotNumber || "?"}</span></span>
       </button>`;
     })
     .join("");
@@ -180,133 +161,27 @@ function renderBoard() {
   }
 }
 
-function esc(text) {
-  return String(text).replace(/[&<>]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[ch]));
-}
-
-function junkScript(text) {
-  const t = String(text || "").replace(/\s+/g, " ").trim();
-  return !t || t === "." || t.length < 12 || /^thank you\.?$/i.test(t);
-}
-
-async function showFormat(slotId) {
-  const box = document.getElementById("format-preview");
-  const hook = document.getElementById("format-hook");
-  const lines = document.getElementById("format-lines");
-  const slot = state.boardSlots.find((s) => s.id === slotId);
-  hook.textContent = slot ? slot.hook : "";
-  const preview = (slot?.scriptPreview || []).filter((t) => !junkScript(t));
-  lines.innerHTML = preview.length
-    ? preview.map((t) => `<li>${esc(t)}</li>`).join("")
-    : "<li>Reading the words on the TikTok…</li>";
-  box.classList.toggle("hidden", !slot);
-  if (slotId) {
-    playOriginal(`/api/board/slot/${slotId}/video`, "Play the original so you can remake the shots.");
-  }
-  try {
-    const cards = await api(`/api/board/slot/${slotId}/cards`).then((r) => r.json());
-    if (cards.ok && cards.cards?.length) {
-      lines.innerHTML = cards.cards
-        .slice(0, 8)
-        .map((c) => `<li>${esc(c.text).replace(/\n/g, "<br>")}</li>`)
-        .join("");
-      box.classList.remove("hidden");
-      return;
-    }
-  } catch {
-    /* fall through to Board copy only if it is real sentences */
-  }
-  try {
-    const data = await api(`/api/board/slot/${slotId}`).then((r) => r.json());
-    if (!data.ok || !data.slot) return;
-    const script = (data.slot.scriptLines || [])
-      .map((item) => (item.brand || item.original || "").trim())
-      .filter((t) => !junkScript(t));
-    if (script.length) {
-      lines.innerHTML = script.slice(0, 8).map((t) => `<li>${esc(t)}</li>`).join("");
-    } else if (!preview.length) {
-      lines.innerHTML = "<li>No on-screen words found yet — remake will read the video.</li>";
-    }
-    box.classList.remove("hidden");
-  } catch {
-    /* preview is optional */
-  }
-}
-
 document.getElementById("board-list").addEventListener("click", (e) => {
   const item = e.target.closest(".board-item");
   if (!item) return;
   state.boardId = item.dataset.id;
-  document.getElementById("ref-url").value = "";
   renderBoard();
-  showFormat(state.boardId);
+  const slot = state.boardSlots.find((s) => s.id === state.boardId);
+  document.getElementById("format-preview").classList.remove("hidden");
+  playOriginal(
+    `/api/board/slot/${state.boardId}/video`,
+    slot ? `${slot.hook || "This format"} — words get rewritten for ${clientName()}.` : ""
+  );
 });
 
 document.getElementById("board-search").addEventListener("input", renderBoard);
 
-function briefPayload() {
-  return {
-    name: document.getElementById("client").selectedOptions[0]?.text || "",
-    one_liner: document.getElementById("brief-one").value.trim(),
-    location: document.getElementById("brief-loc").value.trim(),
-    what: document.getElementById("brief-what").value.trim(),
-    voice: document.getElementById("brief-voice").value.trim(),
-    cta: document.getElementById("brief-cta").value.trim(),
-    avoid: document.getElementById("brief-avoid").value.trim(),
-  };
-}
-
-function fillBrief(brief) {
-  state.brief = brief;
-  document.getElementById("brief-one").value = brief.one_liner || "";
-  document.getElementById("brief-loc").value = brief.location || "";
-  document.getElementById("brief-what").value = brief.what || "";
-  document.getElementById("brief-voice").value = brief.voice || "";
-  document.getElementById("brief-cta").value = brief.cta || "";
-  document.getElementById("brief-avoid").value = brief.avoid || "";
-}
-
-async function loadBrief(clientId, name) {
-  const box = document.getElementById("brief-box");
-  if (!clientId) {
-    box.classList.add("hidden");
-    return;
-  }
-  box.classList.remove("hidden");
-  const brief = await api(`/api/briefs/${clientId}?name=${encodeURIComponent(name || "")}`).then((r) => r.json());
-  fillBrief(brief);
-}
-
-document.getElementById("client").addEventListener("change", async (e) => {
+document.getElementById("client").addEventListener("change", (e) => {
   state.clientId = e.target.value;
   state.boardId = "";
   hidePreview();
-  const name = e.target.selectedOptions[0]?.text || "";
   renderBoard();
-  await loadBrief(state.clientId, name);
-  buildBtn.textContent = state.clientId ? `Remake for ${name}` : "Remake for the client";
-});
-
-document.getElementById("save-brief").addEventListener("click", async () => {
-  if (!state.clientId) return;
-  const saved = document.getElementById("brief-saved");
-  const btn = document.getElementById("save-brief");
-  btn.disabled = true;
-  try {
-    const brief = await api(`/api/briefs/${state.clientId}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(briefPayload()),
-    }).then((r) => r.json());
-    fillBrief(brief);
-    saved.textContent = "Brief saved.";
-    saved.classList.remove("hidden");
-  } catch (err) {
-    saved.textContent = err.message || "Could not save";
-    saved.classList.remove("hidden");
-  } finally {
-    btn.disabled = false;
-  }
+  buildBtn.textContent = state.clientId ? `Read words for ${clientName()}` : "Read words";
 });
 
 async function loadBoard() {
@@ -333,8 +208,7 @@ async function loadBoard() {
     if (melo) {
       select.value = melo.id;
       state.clientId = melo.id;
-      await loadBrief(melo.id, melo.name);
-      buildBtn.textContent = `Remake for ${melo.name}`;
+      buildBtn.textContent = `Read words for ${melo.name}`;
     }
     renderBoard();
   } catch (err) {
@@ -346,62 +220,39 @@ async function loadBoard() {
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   result.classList.add("hidden");
+  review.classList.add("hidden");
   progress.classList.remove("hidden");
   logEl.innerHTML = "";
   buildBtn.disabled = true;
 
-  if (state.clientId) {
-    try {
-      await api(`/api/briefs/${state.clientId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(briefPayload()),
-      });
-    } catch {
-      /* remake can still run on last saved brief */
-    }
-  }
-
-  const captions = document.getElementById("captions").value;
-  const music = document.getElementById("music").value.trim();
-  let reference = "";
-  if (state.refMode === "board" && state.boardId) {
-    reference = `board:${state.boardId}`;
-  } else {
-    reference = document.getElementById("ref-url").value.trim();
-  }
-
-  if (!state.clientId && state.refMode === "board") {
-    addLog("Step 1 — pick the client.", true);
+  const picked = selectedClips();
+  if (!state.clientId) {
+    addLog("Pick the client.", true);
     buildBtn.disabled = false;
     return;
   }
-  if (!reference && !state.refFile) {
-    addLog("Step 2 — pick the approved format to remake.", true);
+  if (!state.boardId) {
+    addLog("Pick the format video.", true);
     buildBtn.disabled = false;
     return;
   }
-  if (!state.clips.length) {
-    addLog("Step 3 — upload the client’s footage.", true);
+  if (!picked.length) {
+    addLog("Pick at least one stable clip.", true);
     buildBtn.disabled = false;
     return;
   }
 
   try {
     const body = new FormData();
-    body.append("reference", reference);
-    body.append("client_id", state.clientId || "");
-    body.append("caption_mode", captions);
-    if (music) body.append("music", music);
-    if (state.refFile) body.append("reference_file", state.refFile, state.refFile.name);
-    state.clips.forEach((clip) => {
-      if (clip.file) body.append("footage", clip.file, clip.name);
-      else if (clip.path) body.append("footage", clip.path);
-    });
-    addLog("Uploading footage…");
+    body.append("reference", `board:${state.boardId}`);
+    body.append("client_id", state.clientId);
+    body.append("caption_mode", "client");
+    picked.forEach((clip) => body.append("footage", clip.path));
+    addLog(`Using ${picked.length} clip${picked.length === 1 ? "" : "s"}…`);
     const res = await api("/api/jobs", { method: "POST", body });
     const job = await res.json();
     if (!res.ok) throw new Error(job.detail || "Could not start job");
+    state.jobId = job.id;
     poll(job.id);
   } catch (err) {
     addLog(String(err.message || err), true);
@@ -426,14 +277,22 @@ async function poll(id) {
         addLog(line, line.startsWith("Error"));
       }
     }
+    if (job.status === "review") {
+      buildBtn.disabled = false;
+      showReview(job);
+      return;
+    }
     if (job.status === "done") {
       buildBtn.disabled = false;
+      approveBtn.disabled = false;
       showResult(id, job);
       return;
     }
     if (job.status === "error") {
       buildBtn.disabled = false;
+      approveBtn.disabled = false;
       addLog(job.error || "Job failed", true);
+      if ((job.draft_captions || []).length) showReview(job);
       return;
     }
     setTimeout(tick, 1000);
@@ -441,16 +300,160 @@ async function poll(id) {
   tick();
 }
 
+function esc(s) {
+  return String(s || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function fmtTime(t) {
+  const n = Number(t);
+  return Number.isFinite(n) ? n.toFixed(1) : "0.0";
+}
+
+function showReview(job) {
+  review.classList.remove("hidden");
+  result.classList.add("hidden");
+  const source = job.source_captions || [];
+  const ocrBox = document.getElementById("ocr-read");
+  const ocrLines = document.getElementById("ocr-lines");
+  if (source.length) {
+    ocrBox.classList.remove("hidden");
+    const shown = source.slice(0, 24);
+    ocrLines.innerHTML =
+      shown
+        .map(
+          (c) =>
+            `<li>${fmtTime(c.start)}–${fmtTime(c.end)}s · ${esc(c.text).replace(/\n/g, " / ")}</li>`
+        )
+        .join("") +
+      (source.length > 24 ? `<li>…${source.length - 24} more OCR crumbs</li>` : "");
+  } else {
+    ocrBox.classList.add("hidden");
+    ocrLines.innerHTML = "";
+  }
+  state.draft = (job.draft_captions || []).length
+    ? job.draft_captions.map((c) => ({ ...c }))
+    : [
+        {
+          text: "",
+          start: 0,
+          end: 3,
+          face: "classic",
+          y_ratio: 0.22,
+          width_ratio: 0,
+          size_ratio: 0,
+          kind: "overlay",
+        },
+      ];
+  renderCaptionRows();
+  review.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function renderCaptionRows() {
+  captionEditor.innerHTML = state.draft
+    .map((c, i) => {
+      const face = c.face === "box" ? "box" : "classic";
+      return `<div class="caption-row" data-i="${i}">
+        <div class="times">
+          <label>In<input type="number" step="0.1" min="0" class="t-start" value="${fmtTime(c.start)}"></label>
+          <label>Out<input type="number" step="0.1" min="0" class="t-end" value="${fmtTime(c.end)}"></label>
+        </div>
+        <textarea class="t-text" rows="3">${esc(c.text)}</textarea>
+        <div class="side">
+          <select class="t-face">
+            <option value="classic"${face === "classic" ? " selected" : ""}>Classic</option>
+            <option value="box"${face === "box" ? " selected" : ""}>Box</option>
+          </select>
+          <button type="button" class="remove">Remove</button>
+        </div>
+      </div>`;
+    })
+    .join("");
+}
+
+function syncDraftFromDom() {
+  [...captionEditor.querySelectorAll(".caption-row")].forEach((row) => {
+    const i = Number(row.dataset.i);
+    const card = state.draft[i];
+    if (!card) return;
+    const start = Number(row.querySelector(".t-start").value);
+    const end = Number(row.querySelector(".t-end").value);
+    card.start = Number.isFinite(start) ? start : 0;
+    card.end = Number.isFinite(end) ? end : card.start + 1;
+    card.text = row.querySelector(".t-text").value;
+    card.face = row.querySelector(".t-face").value;
+    card.kind = "overlay";
+  });
+}
+
+captionEditor.addEventListener("click", (e) => {
+  const btn = e.target.closest(".remove");
+  if (!btn) return;
+  syncDraftFromDom();
+  const row = btn.closest(".caption-row");
+  state.draft.splice(Number(row.dataset.i), 1);
+  renderCaptionRows();
+});
+
+document.getElementById("add-card").addEventListener("click", () => {
+  syncDraftFromDom();
+  const last = state.draft[state.draft.length - 1];
+  const start = last ? Number(last.end) || 0 : 0;
+  state.draft.push({
+    text: "",
+    start,
+    end: start + 2,
+    face: last?.face || "classic",
+    y_ratio: last?.y_ratio ?? 0.22,
+    width_ratio: last?.width_ratio ?? 0,
+    size_ratio: last?.size_ratio ?? 0,
+    kind: "overlay",
+  });
+  renderCaptionRows();
+});
+
+approveBtn.addEventListener("click", async () => {
+  syncDraftFromDom();
+  const captions = state.draft.filter((c) => (c.text || "").trim());
+  if (!captions.length) {
+    addLog("Write at least one line before burning.", true);
+    return;
+  }
+  if (!state.jobId) {
+    addLog("No remake waiting for approval.", true);
+    return;
+  }
+  approveBtn.disabled = true;
+  review.classList.add("hidden");
+  progress.classList.remove("hidden");
+  addLog("Approved — burning captions…");
+  try {
+    const res = await api(`/api/jobs/${state.jobId}/approve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ captions }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Could not approve");
+    poll(state.jobId);
+  } catch (err) {
+    approveBtn.disabled = false;
+    review.classList.remove("hidden");
+    addLog(String(err.message || err), true);
+  }
+});
+
 function showResult(id, job) {
+  review.classList.add("hidden");
   result.classList.remove("hidden");
   const mp4 = `/api/jobs/${id}/file/mp4?t=${Date.now()}`;
   document.getElementById("player").src = mp4;
   const compare = document.getElementById("compare-original");
   if (state.boardId) {
     compare.src = `/api/board/slot/${state.boardId}/video`;
-  } else {
-    const ref = document.getElementById("ref-url").value.trim();
-    compare.src = ref && !/^https?:/i.test(ref) ? `/api/local/video?path=${encodeURIComponent(ref)}` : "";
   }
   document.getElementById("dl-mp4").href = mp4;
   document.getElementById("dl-xml").href = `/api/jobs/${id}/file/xml`;
@@ -475,24 +478,5 @@ api("/api/me")
   })
   .catch(() => {});
 
-async function loadLastRemake() {
-  try {
-    const data = await api("/api/jobs/latest").then((r) => r.json());
-    if (!data.job) return;
-    const spec = data.job.spec || {};
-    if ((spec.reference || "").startsWith("board:")) {
-      state.boardId = spec.reference.split(":")[1];
-      renderBoard();
-      showFormat(state.boardId);
-    }
-    showResult(data.job.id, data.job);
-    progress.classList.remove("hidden");
-    logEl.innerHTML = "";
-    for (const line of data.job.log || []) addLog(line, line.startsWith("Error"));
-  } catch {
-    /* first run has no remake yet */
-  }
-}
-
-loadBoard().then(loadLastRemake);
+loadBoard();
 renderClips();
